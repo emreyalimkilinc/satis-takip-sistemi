@@ -25,7 +25,7 @@ def init_db():
 
 init_db()
 
-# Personel Listesi (Her iki tarafta da aynı listeyi kullanmak için sabit tanımladık)
+# Personel Listesi
 PERSONEL_LISTESI = [
     "Emre YALIMKILINÇ", "Derya DEMİR", "Sevim TEKİN", "Nurdagül MENEKŞE", 
     "Betül Merve GÜNGÖR", "Elif DEMİR", "Onur VARAN", "Özge KEL", 
@@ -81,13 +81,13 @@ with tab2:
             df['Ay'] = df['tarih'].dt.strftime('%Y-%m')
             df['Gün'] = df['tarih'].dt.strftime('%Y-%m-%d')
             
-            # Üst Menü Seçimi: Genel Rapor mu yoksa Personel Özel mi?
+            # Üst Menü Seçimi
             admin_modu = st.radio("İnceleme Türü Seçin:", ["📅 Tarih Aralıklı Genel Rapor", "👤 Personel Bazlı Özel İnceleme"], horizontal=True)
             st.markdown("---")
             
             # --- MOD 1: TARİH ARALIKLI GENEL RAPOR ---
             if admin_modu == "📅 Tarih Aralıklı Genel Rapor":
-                st.markdown("### 📅 Tarih Aralığı Filtresi")
+                st.markdown("### 📅 Tarih Aralığı Filtresi (Genel Şirket)")
                 min_date = df['tarih'].min().to_pydatetime()
                 max_date = df['tarih'].max().to_pydatetime()
                 
@@ -99,15 +99,15 @@ with tab2:
                     "Raporlamak istediğiniz başlangıç ve bitiş tarihlerini seçin:",
                     value=(varsayilan_baslangic, max_date),
                     min_value=min_date,
-                    max_value=max_date
+                    max_value=max_date,
+                    key="genel_tarih"
                 )
                 
                 if isinstance(tarih_secimi, tuple) and len(tarih_secimi) == 2:
                     baslangic_tarihi, bitis_tarihi = tarih_secimi
                     f_df = df[(df['tarih'] >= pd.to_datetime(baslangic_tarihi)) & 
                               (df['tarih'] <= pd.to_datetime(bitis_tarihi))]
-                    
-                    st.info(f"📅 **{baslangic_tarihi.strftime('%d.%m.%Y')}** ile **{bitis_tarihi.strftime('%d.%m.%Y')}** arasındaki satışlar listeleniyor.")
+                    st.info(f"📅 **{baslangic_tarihi.strftime('%d.%m.%Y')}** ile **{bitis_tarihi.strftime('%d.%m.%Y')}** arasındaki genel satışlar listeleniyor.")
                 else:
                     f_df = df
                     st.warning("Lütfen takvimden hem başlangıç hem de bitiş gününe tıklayarak bir aralık seçin.")
@@ -124,34 +124,59 @@ with tab2:
                 else:
                     st.warning("Seçilen tarih aralığında herhangi bir satış kaydı bulunamadı.")
             
-            # --- MOD 2: PERSONEL BAZLI ÖZEL İNCELEME (YENİ ÖZELLİK) ---
+            # --- MOD 2: PERSONEL BAZLI ÖZEL İNCELEME (Tarih Aralıklı) ---
             else:
-                st.markdown("### 👤 Personel Bazlı Satış Geçmişi Gözlemi")
+                st.markdown("### 👤 Personel Bazlı Tarih Aralıklı Gözlem")
                 
-                # İncelenmek istenen personeli seçme kutusu
                 secilen_personel = st.selectbox("Satışlarını incelemek istediğiniz kullanıcıyı seçin:", PERSONEL_LISTESI)
                 
-                # Seçilen personelin verilerini filtrele (Tarih bağımsız, tüm zamanlar)
-                personel_df = df[df['satici'] == secilen_personel]
+                # Önce seçilen personelin tüm verilerini bulalım (Tarih sınırını belirlemek için)
+                ham_personel_df = df[df['satici'] == secilen_personel]
                 
-                if not personel_df.empty:
-                    p_toplam = personel_df['tutar'].sum()
-                    p_adet = len(personel_df)
+                if not ham_personel_df.empty:
+                    # Bu personele özel dinamik takvim sınırları
+                    p_min_date = ham_personel_df['tarih'].min().to_pydatetime()
+                    p_max_date = ham_personel_df['tarih'].max().to_pydatetime()
                     
-                    # Yan yana iki büyük bilgi kartı gösterelim
-                    kol1, kol2 = st.columns(2)
-                    with kol1:
-                        st.metric(label=f"💰 {secilen_personel} Toplam Cirosu (Şu Ana Kadar)", value=f"{p_toplam:,.2f} ₺")
-                    with col2:
-                        st.metric(label="📦 Toplam Satış Adedi", value=f"{p_adet} Adet")
+                    st.write(f"ℹ️ {secilen_personel} için sistemdeki ilk kayıt: **{p_min_date.strftime('%d.%m.%Y')}**, son kayıt: **{p_max_date.strftime('%d.%m.%Y')}**")
                     
-                    # Personelin departman dağılım grafiği
-                    fig_p = px.pie(personel_df, values='tutar', names='departman', title=f"{secilen_personel} Satışlarının Departman Dağılımı")
-                    st.plotly_chart(fig_p, use_container_width=True)
+                    # Personel ekranı için özel tarih aralığı kutusu
+                    p_tarih_secimi = st.date_input(
+                        f"{secilen_personel} için Tarih Aralığı Seçin:",
+                        value=(p_min_date, p_max_date),
+                        min_value=p_min_date,
+                        max_value=p_max_date,
+                        key="personel_tarih"
+                    )
                     
-                    # Personelin detaylı satış listesi
-                    st.write(f"📋 {secilen_personel} Tarafından Yapılan Tüm Satışların Listesi:")
-                    st.dataframe(personel_df[['tarih', 'departman', 'tutar']].sort_values(by='tarih', ascending=False), use_container_width=True)
+                    # Seçilen aralığa göre filtrele
+                    if isinstance(p_tarih_secimi, tuple) and len(p_tarih_secimi) == 2:
+                        p_baslangic, p_bitis = p_tarih_secimi
+                        personel_df = ham_personel_df[(ham_personel_df['tarih'] >= pd.to_datetime(p_baslangic)) & 
+                                                      (ham_personel_df['tarih'] <= pd.to_datetime(p_bitis))]
+                        st.info(f"📅 **{secilen_personel}** isimli personelin **{p_baslangic.strftime('%d.%m.%Y')}** - **{p_bitis.strftime('%d.%m.%Y')}** arasındaki performans verileri:")
+                    else:
+                        personel_df = ham_personel_df
+                        st.warning("Lütfen takvimden hem başlangıç hem de bitiş gününe tıklayarak bir aralık seçin.")
+                    
+                    # Filtrelenmiş sonuçları göster
+                    if not personel_df.empty:
+                        p_toplam = personel_df['tutar'].sum()
+                        p_adet = len(personel_df)
+                        
+                        kol1, kol2 = st.columns(2)
+                        with kol1:
+                            st.metric(label=f"💰 Seçilen Dönem Toplam Cirosu", value=f"{p_toplam:,.2f} ₺")
+                        with kol2:
+                            st.metric(label="📦 Seçilen Dönem Satış Adedi", value=f"{p_adet} Adet")
+                        
+                        fig_p = px.pie(personel_df, values='tutar', names='departman', title=f"Seçilen Dönem Departman Dağılımı")
+                        st.plotly_chart(fig_p, use_container_width=True)
+                        
+                        st.write("📋 Dönem Satış Listesi:")
+                        st.dataframe(personel_df[['tarih', 'departman', 'tutar']].sort_values(by='tarih', ascending=False), use_container_width=True)
+                    else:
+                        st.warning("Seçilen tarih aralığında bu personele ait bir satış kaydı bulunamadı.")
                 else:
                     st.info(f"Seçilen kullanıcıya ({secilen_personel}) ait sistemde henüz hiçbir satış kaydı bulunmuyor.")
                 
