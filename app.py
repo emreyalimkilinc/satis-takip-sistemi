@@ -59,15 +59,15 @@ with tab1:
             else:
                 st.error("Lütfen tutarın 0'dan büyük olduğundan emin olun.")
 
-# --- SEKME 2: YÖNETİCİ PANELİ (Sadece Emre Bey / Şifreyi Bilenler) ---
+# --- SEKME 2: YÖNETİCİ PANELİ (Sadece Şifreyi Bilenler) ---
 with tab2:
     st.subheader("Yönetici Girişi")
     
-    # Şifre Giriş Kutusu (Yazılan harfler/rakamlar yıldız olarak görünür)
+    # Şifre Giriş Kutusu
     admin_sifre = st.text_input("Lütfen Admin Şifresini Giriniz:", type="password")
     
-    # NOT: Aşağıdaki '1234' kısmını istediğiniz bir şifreyle değiştirebilirsiniz.
-    if admin_sifre == "1234":
+    # Yeni şifreniz buraya tanımlandı:
+    if admin_sifre == "577339":
         st.success("Giriş Başarılı! İstatistikler yükleniyor...")
         st.markdown("---")
         
@@ -106,5 +106,4 @@ with tab2:
             st.info("Sistemde henüz kayıtlı veri bulunmuyor.")
             
     elif admin_sifre != "":
-        # Şifre girildi ama yanlışsa uyarı ver
         st.error("Hatalı Şifre! İstatistikleri görme yetkiniz yoktur.")
