@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import plotly.express as px
 
 # 1. VERİTABANI BAĞLANTISI
@@ -59,14 +59,13 @@ with tab1:
             else:
                 st.error("Lütfen tutarın 0'dan büyük olduğundan emin olun.")
 
-# --- SEKME 2: YÖNETİCİ PANELİ (Sadece Şifreyi Bilenler) ---
+# --- SEKME 2: YÖNETİCİ PANELİ (Tarih Aralığı Filtreli) ---
 with tab2:
     st.subheader("Yönetici Girişi")
     
     # Şifre Giriş Kutusu
     admin_sifre = st.text_input("Lütfen Admin Şifresini Giriniz:", type="password")
     
-    # Yeni şifreniz buraya tanımlandı:
     if admin_sifre == "577339":
         st.success("Giriş Başarılı! İstatistikler yükleniyor...")
         st.markdown("---")
@@ -81,27 +80,51 @@ with tab2:
             df['Ay'] = df['tarih'].dt.strftime('%Y-%m')
             df['Gün'] = df['tarih'].dt.strftime('%Y-%m-%d')
             
-            periyot = st.radio("Raporlama Dönemi Seçin:", ["Günlük", "Aylık", "Yıllık"], horizontal=True)
+            # --- YENİ ÖZELLİK: TARİH ARALIĞI SEÇİMİ ---
+            st.markdown("### 📅 Tarih Aralığı Filtresi")
+            min_date = df['tarih'].min().to_pydatetime()
+            max_date = df['tarih'].max().to_pydatetime()
             
-            if periyot == "Günlük":
-                secim = st.selectbox("Tarih Seçin", sorted(df['Gün'].unique(), reverse=True))
-                f_df = df[df['Gün'] == secim]
-            elif periyot == "Aylık":
-                secim = st.selectbox("Ay Seçin (Yıl-Ay)", sorted(df['Ay'].unique(), reverse=True))
-                f_df = df[df['Ay'] == secim]
-            else:
-                secim = st.selectbox("Yıl Seçin", sorted(df['Yıl'].unique(), reverse=True))
-                f_df = df[df['Yıl'] == secim]
+            # Varsayılan olarak son 7 günü seçili getir
+            varsayilan_baslangic = max_date - timedelta(days=7)
+            if varsayilan_baslangic < min_date:
+                varsayilan_baslangic = min_date
                 
-            toplam = f_df['tutar'].sum()
-            st.metric(label=f"Seçilen Dönem Toplam Ciro ({periyot})", value=f"{toplam:,.2f} ₺")
+            tarih_secimi = st.date_input(
+                "Raporlamak istediğiniz başlangıç ve bitiş tarihlerini seçin:",
+                value=(varsayilan_baslangic, max_date),
+                min_value=min_date,
+                max_value=max_date
+            )
             
-            # Grafik
-            fig = px.bar(f_df, x='satici', y='tutar', color='departman', title="Satıcı Bazlı Dağılım Gözlemi")
-            st.plotly_chart(fig, use_container_width=True)
+            # Kullanıcı hem başlangıç hem bitiş tarihini seçtiyse filtrele
+            if isinstance(tarih_secimi, tuple) and len(tarih_secimi) == 2:
+                baslangic_tarihi, bitis_tarihi = tarih_secimi
+                # Tarihleri datetime formatına çevirip filtreleme yapıyoruz
+                f_df = df[(df['tarih'] >= pd.to_datetime(baslangic_tarihi)) & 
+                          (df['tarih'] <= pd.to_datetime(bitis_tarihi))]
+                
+                st.info(f"📅 **{baslangic_tarihi.strftime('%d.%m.%Y')}** ile **{bitis_tarihi.strftime('%d.%m.%Y')}** arasındaki satışlar listeleniyor.")
+            else:
+                # Kullanıcı henüz ikinci tarihi seçmediyse (sadece tek güne tıkladıysa) tümünü göster veya bekle
+                f_df = df
+                st.warning("Lütfen takvimden hem başlangıç hem de bitiş gününe tıklayarak bir aralık seçin.")
             
-            # Detay Tablosu
-            st.dataframe(f_df[['tarih', 'satici', 'departman', 'tutar']].sort_values(by='tarih', ascending=False), use_container_width=True)
+            # --- RAPORLARI GÖSTERME ---
+            if not f_df.empty:
+                toplam = f_df['tutar'].sum()
+                st.metric(label="Seçilen Tarih Aralığındaki Toplam Ciro", value=f"{toplam:,.2f} ₺")
+                
+                # Grafik
+                fig = px.bar(f_df, x='satici', y='tutar', color='departman', title="Seçilen Aralıktaki Satıcı Performansları")
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Detay Tablosu
+                st.write("📋 Satış Listesi Detayları:")
+                st.dataframe(f_df[['tarih', 'satici', 'departman', 'tutar']].sort_values(by='tarih', ascending=False), use_container_width=True)
+            else:
+                st.warning("Seçilen tarih aralığında herhangi bir satış kaydı bulunamadı.")
+                
         else:
             st.info("Sistemde henüz kayıtlı veri bulunmuyor.")
             
