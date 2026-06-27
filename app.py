@@ -95,6 +95,7 @@ with tab2:
             mevcut_hedef = yeni_hedef
 
         if not df.empty:
+            # Tarih dönüşümünü güvenli bir şekilde yapıyoruz
             df['tarih'] = pd.to_datetime(df['tarih'])
             
             admin_modu = st.radio("İnceleme Türü Seçin:", [
@@ -105,7 +106,7 @@ with tab2:
             ], horizontal=True)
             st.markdown("---")
             
-            # --- MOD 1: TARİH ARALIKLI GENEL RAPOR (DÜZELTİLDİ) ---
+            # --- MOD 1: TARİH ARALIKLI GENEL RAPOR ---
             if admin_modu == "📅 Tarih Aralıklı Genel Rapor":
                 st.markdown("### 📅 Tarih Aralığı Filtresi (Genel Şirket)")
                 min_date = df['tarih'].min().to_pydatetime()
@@ -117,17 +118,14 @@ with tab2:
                     
                 tarih_secimi = st.date_input("Tarih Aralığı Seçin:", value=(varsayilan_baslangic, max_date), min_value=min_date, max_value=max_date, key="genel_t")
                 
-                # Çökme/Bozulma Engelleyici Kontrol (Eğer tek tarih seçildiyse hata verme, başlangıcı baz al)
                 if isinstance(tarih_secimi, tuple) and len(tarih_secimi) == 2:
                     baslangic_tarihi, bitis_tarihi = tarih_secimi
-                elif isinstance(tarih_secimi, list) and len(tarih_secimi) == 2:
-                    baslangic_tarihi, bitis_tarihi = tarih_secimi[0], tarih_secimi[1]
                 else:
-                    # Kullanıcı sadece tek güne tıkladıysa, o tek günü hem başlangıç hem bitiş yap
                     baslangic_tarihi = tarih_secimi if not isinstance(tarih_secimi, (tuple, list)) else tarih_secimi[0]
                     bitis_tarihi = baslangic_tarihi
                 
-                f_df = df[(df['tarih'] >= pd.to_datetime(baslangic_tarihi)) & (df['tarih'] <= pd.to_datetime(bitis_tarihi))]
+                # Filtreleme saf tarih nesneleri üzerinden yapılıyor (Hata önleyici alan)
+                f_df = df[(df['tarih'] >= pd.to_datetime(baslangic_tarihi)) & (df['tarih'] <= pd.to_datetime(bitis_tarihi))].copy()
                 
                 if not f_df.empty:
                     toplam_ciro = f_df['tutar'].sum()
@@ -141,11 +139,11 @@ with tab2:
                     
                     st.markdown("#### 📋 Satış Listesi Detayları")
                     
+                    # Excel Çıktısı için Hazırlık
                     output = io.BytesIO()
+                    excel_df = f_df[['tarih', 'satici', 'departman', 'tutar']].copy()
+                    excel_df['tarih'] = excel_df['tarih'].dt.strftime('%Y-%m-%d')
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        # Tarih sütununu temiz metne çevirerek Excel'e yazıyoruz
-                        excel_df = f_df[['tarih', 'satici', 'departman', 'tutar']].copy()
-                        excel_df['tarih'] = excel_df['tarih'].dt.strftime('%Y-%m-%d')
                         excel_df.to_excel(writer, index=False, sheet_name='Satis_Raporu')
                     processed_data = output.getvalue()
                     
@@ -156,18 +154,19 @@ with tab2:
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                     
-                    # Ekranda şık görünmesi için tarihi formatla
+                    # HATANIN DÜZELTİLDİĞİ YER: Tabloyu bozmadan sadece ekranda şık göstermek için kopyasını alıyoruz
                     goster_df = f_df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
                     goster_df['tarih'] = goster_df['tarih'].dt.strftime('%d.%m.%Y')
-                    st.dataframe(goster_df.sort_values(by='id', ascending=False), use_container_width=True)
+                    goster_df.columns = ['Kayıt ID', 'Satış Tarihi', 'Satıcı Adı Soyadı', 'Departman', 'Tutar (₺)']
+                    st.dataframe(goster_df.sort_values(by='Kayıt ID', ascending=False), use_container_width=True)
                 else:
                     st.warning("Seçilen tarih aralığında herhangi bir satış kaydı bulunamadı.")
             
-            # --- MOD 2: PERSONEL BAZLI ÖZEL İNCELEME (DÜZELTİLDİ) ---
+            # --- MOD 2: PERSONEL BAZLI ÖZEL İNCELEME ---
             elif admin_modu == "👤 Personel Bazlı Özel İnceleme":
                 st.markdown("### 👤 Personel Bazlı Tarih Aralıklı Gözlem")
                 secilen_personel = st.selectbox("Kullanıcı Seçin:", PERSONEL_LISTESI)
-                ham_personel_df = df[df['satici'] == secilen_personel]
+                ham_personel_df = df[df['satici'] == secilen_personel].copy()
                 
                 if not ham_personel_df.empty:
                     p_min, p_max = ham_personel_df['tarih'].min().to_pydatetime(), ham_personel_df['tarih'].max().to_pydatetime()
@@ -175,13 +174,11 @@ with tab2:
                     
                     if isinstance(p_tarih, tuple) and len(p_tarih) == 2:
                         p_b, p_bit = p_tarih
-                    elif isinstance(p_tarih, list) and len(p_tarih) == 2:
-                        p_b, p_bit = p_tarih[0], p_tarih[1]
                     else:
                         p_b = p_tarih if not isinstance(p_tarih, (tuple, list)) else p_tarih[0]
                         p_bit = p_b
                         
-                    personel_df = ham_personel_df[(ham_personel_df['tarih'] >= pd.to_datetime(p_b)) & (ham_personel_df['tarih'] <= pd.to_datetime(p_bit))]
+                    personel_df = ham_personel_df[(ham_personel_df['tarih'] >= pd.to_datetime(p_b)) & (ham_personel_df['tarih'] <= pd.to_datetime(p_bit))].copy()
                         
                     if not personel_df.empty:
                         kol1, kol2 = st.columns(2)
@@ -193,13 +190,14 @@ with tab2:
                         
                         goster_p_df = personel_df[['tarih', 'departman', 'tutar']].copy()
                         goster_p_df['tarih'] = goster_p_df['tarih'].dt.strftime('%d.%m.%Y')
-                        st.dataframe(goster_p_df.sort_values(by='tarih', ascending=False), use_container_width=True)
+                        goster_p_df.columns = ['Satış Tarihi', 'Departman', 'Tutar (₺)']
+                        st.dataframe(goster_p_df.sort_values(by='Satış Tarihi', ascending=False), use_container_width=True)
                     else:
                         st.warning("Seçilen tarih aralığında veri bulunamadı.")
                 else:
                     st.info("Bu personele ait henüz kayıt yok.")
 
-            # --- MOD 3: LİDERLİK TABLOSU (DÜZELTİLDİ) ---
+            # --- MOD 3: LİDERLİK TABLOSU (ŞAMPİYONLAR) ---
             elif admin_modu == "🏆 Liderlik Tablosu (Şampiyonlar)":
                 st.markdown("### 🏆 En Çok Satış Yapanlar Sıralaması")
                 l_min, l_max = df['tarih'].min().to_pydatetime(), df['tarih'].max().to_pydatetime()
@@ -207,13 +205,11 @@ with tab2:
                 
                 if isinstance(l_tarih, tuple) and len(l_tarih) == 2:
                     l_b, l_bit = l_tarih
-                elif isinstance(l_tarih, list) and len(l_tarih) == 2:
-                    l_b, l_bit = l_tarih[0], l_tarih[1]
                 else:
                     l_b = l_tarih if not isinstance(l_tarih, (tuple, list)) else l_tarih[0]
                     l_bit = l_b
                     
-                l_df = df[(df['tarih'] >= pd.to_datetime(l_b)) & (df['tarih'] <= pd.to_datetime(l_bit))]
+                l_df = df[(df['tarih'] >= pd.to_datetime(l_b)) & (df['tarih'] <= pd.to_datetime(l_bit))].copy()
                 
                 if not l_df.empty:
                     liderlik = l_df.groupby('satici')['tutar'].sum().reset_index()
@@ -243,8 +239,8 @@ with tab2:
                 
                 gosterilecek_df = df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
                 gosterilecek_df['tarih'] = gosterilecek_df['tarih'].dt.strftime('%d.%m.%Y')
-                gosterilecek_df = gosterilecek_df.sort_values(by='id', ascending=False).head(50)
-                st.dataframe(gosterilecek_df, use_container_width=True)
+                gosterilecek_df.columns = ['Kayıt ID', 'Satış Tarihi', 'Satıcı Adı Soyadı', 'Departman', 'Tutar (₺)']
+                st.dataframe(gosterilecek_df.sort_values(by='Kayıt ID', ascending=False).head(50), use_container_width=True)
                 
                 with st.form("silme_formu"):
                     silinecek_id = st.number_input("Silmek İstediğiniz Satışın ID Numarasını Girin:", min_value=1, step=1)
