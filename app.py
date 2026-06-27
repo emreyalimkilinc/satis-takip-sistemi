@@ -37,7 +37,10 @@ with tab1:
     with st.form("satis_form", clear_on_submit=True):
         tarih = st.date_input("Satış Tarihi", datetime.now())
         satici = st.text_input("Satıcı Adı Soyadı")
-        dept = st.selectbox("Departman", ["Kurumsal", "Perakende", "Saha Satış", "Dijital"])
+        
+        # İstediğiniz departmanlar buraya eklendi:
+        dept = st.selectbox("Departman", ["Giriş kat", "Züccaciye", "Kasa", "Mobilya"])
+        
         tutar = st.number_input("Satış Tutarı (₺)", min_value=0.0, step=50.0)
         submit = st.form_submit_button("Sisteme Kaydet")
         
@@ -83,7 +86,7 @@ with tab2:
         toplam = f_df['tutar'].sum()
         st.metric(label=f"Seçilen Dönem Toplam Ciro ({periyot})", value=f"{toplam:,.2f} ₺")
         
-        # İnteraktif Grafik (Plotly ile parmakla dokunulduğunda veri gösteren grafik)
+        # İnteraktif Grafik
         fig = px.bar(f_df, x='satici', y='tutar', color='departman', title="Satıcı Bazlı Dağılım Gözlemi")
         st.plotly_chart(fig, use_container_width=True)
         
