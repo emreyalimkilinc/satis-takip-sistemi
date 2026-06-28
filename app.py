@@ -33,6 +33,15 @@ def init_db():
             sifre TEXT
         )
     ''')
+    # Admin Şifre Yönetimi Tablosu
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS admin_hesap (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sifre TEXT
+        )
+    ''')
+    c.execute("INSERT OR IGNORE INTO admin_hesap (id, sifre) VALUES (1, '577339')")
+
     for kod, p_isim in PERSONEL_KODLARI.items():
         c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES (?, 1500000)", (p_isim,))
         c.execute("INSERT OR IGNORE INTO kullanicilar (kod, isim, sifre) VALUES (?, ?, '123456')", (kod, p_isim))
@@ -203,7 +212,7 @@ if not st.session_state.admin_modu_aktif:
         """, unsafe_allow_html=True)
         st.progress(user_yuzde)
 
-        # HATA GEÇİRMEZ YENİ SATIŞ FORMU
+        # HATA GEÇİRMEZ SATIŞ FORMU
         with st.form("satis_form", clear_on_submit=True):
             tarih = st.date_input("Satış Tarihi", datetime.now().date())
             dept = st.selectbox("Departman", DEPARTMAN_LISTESI)
@@ -239,6 +248,30 @@ if not st.session_state.admin_modu_aktif:
                     st.success("Başarıyla Kaydedildi!")
                     st.rerun()
 
+        # 🔧 DOĞRU YERDEKİ PERSONEL ŞİFRE DEĞİŞTİRME PANELİ
+        st.markdown("---")
+        with st.expander("🔐 Şifremi Değiştir"):
+            with st.form("sifre_degis_form", clear_on_submit=True):
+                p_eski = st.text_input("Mevcut Şifre:", type="password")
+                p_yeni = st.text_input("Yeni Şifre:", type="password")
+                p_yeni_onay = st.text_input("Yeni Şifre (Tekrar):", type="password")
+                if st.form_submit_button("ŞİFREMİ GÜNCELLE"):
+                    conn = get_db_connection()
+                    c = conn.cursor()
+                    c.execute("SELECT sifre FROM kullanicilar WHERE kod = ?", (st.session_state.aktif_satici_kodu,))
+                    mevcut_db_sifre = c.fetchone()[0]
+                    if p_eski != mevcut_db_sifre:
+                        st.error("Mevcut şifreniz hatalı.")
+                    elif p_yeni != p_yeni_onay:
+                        st.error("Yeni şifreler birbiriyle uyuşmuyor.")
+                    elif len(p_yeni) < 4:
+                        st.error("Yeni şifre en az 4 karakter olmalıdır.")
+                    else:
+                        c.execute("UPDATE kullanicilar SET sifre = ? WHERE kod = ?", (p_yeni, st.session_state.aktif_satici_kodu))
+                        conn.commit()
+                        st.success("Şifreniz başarıyla güncellendi!")
+                    conn.close()
+
         # Grafik ve Geçmiş Veriler
         conn = get_db_connection()
         df_personel = pd.read_sql_query("SELECT * FROM satislar WHERE satici = ?", conn, params=(st.session_state.aktif_satici_adi,))
@@ -269,7 +302,15 @@ if not st.session_state.admin_modu_aktif:
 else:
     if not st.session_state.admin_sifre_dogrulandi:
         st.markdown("### 🔒 Yönetici Girişi")
-        if st.text_input("Admin Şifresi:", type="password") == "577339":
+        admin_kod_giris = st.text_input("Admin Şifresi:", type="password")
+        
+        conn = get_db_connection()
+        c = conn.cursor()
+        c.execute("SELECT sifre FROM admin_hesap WHERE id=1")
+        guncel_admin_sifre = c.fetchone()[0]
+        conn.close()
+
+        if admin_kod_giris == guncel_admin_sifre:
             st.session_state.admin_sifre_dogrulandi = True
             st.rerun()
             
@@ -283,7 +324,6 @@ else:
         admin_modu = st.selectbox("⚙️ İşlem Menüsü Seçin:", ["📊 Genel Rapor & Kotalar", "👤 Personel Detay", "🏆 Şampiyonlar Ligi", "⚙️ Düzenle / Sil", "🔑 Şifre Yönetimi"])
         st.markdown("---")
         
-        # TÜM SEKMELERDE KULLANILACAK TARİH FİLTRESİ
         if not df.empty:
             df['tarih_dt'] = pd.to_datetime(df['tarih'])
             min_date = df['tarih_dt'].min().date()
@@ -293,11 +333,9 @@ else:
             max_date = datetime.now().date()
 
         if admin_modu == "📊 Genel Rapor & Kotalar":
-            # Tarih Filtresi (Mağaza cirosunu ve listeleri kontrol eder)
             st.markdown("#### 📅 Rapor Dönemi Seçimi")
             tarih_secimi = st.date_input("Dönem Aralığı:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
             
-            # Filtreleme İşlemi
             if isinstance(tarih_secimi, tuple) and len(tarih_secimi) == 2:
                 b_tarih, bit_tarih = tarih_secimi
             else:
@@ -312,7 +350,6 @@ else:
             toplam_ciro = f_df['tutar'].sum() if not f_df.empty else 0
             st.metric("MAĞAZA SEÇİLİ DÖNEM NET CİRO", f"{toplam_ciro:,} TL")
             
-            # Mağaza Genel Kart Görünümü (Yatay Taşmayan Dikey Tasarım)
             st.markdown("### 📋 Dönem İçi Tüm Personel Satışları")
             if not f_df.empty:
                 f_df_sorted = f_df.sort_values(by='id', ascending=False)
@@ -414,7 +451,32 @@ else:
                     st.rerun()
 
         elif admin_modu == "🔑 Şifre Yönetimi":
+            st.markdown("### 👤 Personel Şifre Listesi")
             conn = get_db_connection()
             df_k = pd.read_sql_query("SELECT kod as 'Kod', isim as 'Personel', sifre as 'Şifre' FROM kullanicilar", conn)
             conn.close()
             st.data_editor(df_k, use_container_width=True, disabled=["Kod", "Personel", "Şifre"])
+            
+            # 🛡️ YENİ: ADMİN KENDİ ŞİFRESİNİ DEĞİŞTİRME ALANI
+            st.markdown("---")
+            st.markdown("### 🔒 Yönetici Şifresini Değiştir")
+            with st.form("admin_sifre_form", clear_on_submit=True):
+                a_eski = st.text_input("Mevcut Admin Şifresi:", type="password")
+                a_yeni = st.text_input("Yeni Admin Şifresi:", type="password")
+                a_yeni_onay = st.text_input("Yeni Admin Şifresi (Tekrar):", type="password")
+                if st.form_submit_button("ADMİN ŞİFRESİNİ GÜNCELLE"):
+                    conn = get_db_connection()
+                    c = conn.cursor()
+                    c.execute("SELECT sifre FROM admin_hesap WHERE id=1")
+                    m_sif = c.fetchone()[0]
+                    if a_eski != m_sif:
+                        st.error("Mevcut admin şifresi hatalı.")
+                    elif a_yeni != a_yeni_onay:
+                        st.error("Şifreler uyuşmuyor.")
+                    elif len(a_yeni) < 4:
+                        st.error("Yeni şifre en az 4 karakter olmalıdır.")
+                    else:
+                        c.execute("UPDATE admin_hesap SET sifre=? WHERE id=1", (a_yeni,))
+                        conn.commit()
+                        st.success("Yönetici şifresi başarıyla güncellendi!")
+                    conn.close()
