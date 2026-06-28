@@ -185,7 +185,6 @@ else:
         st.success("Giriş Başarılı!")
         st.markdown("---")
         
-        # Tüm hedefleri veritabanından çekme
         conn = get_db_connection()
         df = pd.read_sql_query("SELECT * FROM satislar", conn)
         c = conn.cursor()
@@ -200,34 +199,16 @@ else:
             kotalar[d_name] = res[0] if res else 0.0
         conn.close()
         
-        # --- KOTA VE HEDEF GİRİŞ ALANI ---
-        with st.expander("🎯 Mağaza & Departman Kotalarını Ayarla"):
-            yeni_hedef = st.number_input("Aylık Genel Ciro Hedefi (₺):", min_value=0.0, value=float(mevcut_hedef), step=10000.0)
-            if yeni_hedef != mevcut_hedef:
-                conn = get_db_connection()
-                c = conn.cursor()
-                c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur='aylik_genel'", (yeni_hedef,))
-                conn.commit()
-                conn.close()
-                st.success("Genel hedef güncellendi!")
-                st.rerun()
-                
-            st.markdown("**Mağaza Alan Kotası (Departman Bazlı):**")
+        # --- GENEL HEDEF PANELİ (Açılır Kutu Kaldırıldı, Pratikleştirildi) ---
+        yeni_hedef = st.number_input("🎯 Aylık Genel Mağaza Hedefi (₺):", min_value=0.0, value=float(mevcut_hedef), step=10000.0)
+        if yeni_hedef != mevcut_hedef:
             conn = get_db_connection()
             c = conn.cursor()
-            kota_degisti = False
-            for d_name in DEPARTMAN_LISTESI:
-                yeni_d_kota = st.number_input(f"⚠️ {d_name} Kotası (₺):", min_value=0.0, value=float(kotalar[d_name]), step=5000.0)
-                if yeni_d_kota != kotalar[d_name]:
-                    c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur = ?", (yeni_d_kota, d_name))
-                    kota_degisti = True
-            if kota_degisti:
-                conn.commit()
-                conn.close()
-                st.success("Mağaza kotaları başarıyla güncellendi!")
-                st.rerun()
-            else:
-                conn.close()
+            c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur='aylik_genel'", (yeni_hedef,))
+            conn.commit()
+            conn.close()
+            st.success("Genel hedef güncellendi!")
+            st.rerun()
 
         if not df.empty:
             try:
@@ -238,7 +219,7 @@ else:
             admin_modu = st.radio("İnceleme Türü:", ["📊 Genel Rapor", "👤 Personel", "🏆 Şampiyonlar", "⚙️ Düzenle/Sil"], horizontal=True)
             st.markdown("---")
             
-            # --- MOD 1: GENEL RAPOR VE KOTA DURUM TABLOSU ---
+            # --- MOD 1: GENEL RAPOR VE CANLI KOTA DÜZENLEME TABLOSU ---
             if admin_modu == "📊 Genel Rapor":
                 try:
                     min_date = df['tarih_formatli'].min().date()
@@ -275,34 +256,57 @@ else:
                     """, unsafe_allow_html=True)
                     st.progress(yuzde)
                     
-                    # --- MAĞAZA KOTASI HEDEFE NE KADAR KALDI TABLOSU ---
-                    st.markdown("### 🎯 Mağaza Kota Durumu (Hedefe Ne Kaldı?)")
+                    # --- INTERAKTİF DÜZENLENEBİLİR KOTA TABLOSU ---
+                    st.markdown("### 📝 Mağaza Kota Durumu")
+                    st.info("💡 Kotaları değiştirmek için **'Yeni Kota (₺)'** sütunundaki rakamlara çift tıklayıp değiştirebilir, ardından alttaki mavi butona basabilirsiniz.")
                     
-                    kota_durum_verisi = []
+                    kota_duzenleme_listesi = []
                     for d_name in DEPARTMAN_LISTESI:
                         dept_satis_toplam = f_df[f_df['departman'] == d_name]['tutar'].sum()
                         dept_hedef = kotalar.get(d_name, 0.0)
                         kalan = dept_hedef - dept_satis_toplam
                         
-                        if kalan <= 0:
-                            kalan_str = "0.00 ₺ (Hedef Tamamlandı 🎉)"
-                            basari_yuzde = 100.0 if dept_hedef > 0 else 0.0
-                            if dept_hedef > 0 and dept_satis_toplam > dept_hedef:
-                                basari_yuzde = (dept_satis_toplam / dept_hedef) * 100
-                        else:
-                            kalan_str = f"{kalan:,.2f} ₺"
-                            basari_yuzde = (dept_satis_toplam / dept_hedef) * 100 if dept_hedef > 0 else 0.0
-                            
-                        kota_durum_verisi.append({
-                            "Mağaza Alanı / Bölüm": d_name,
-                            "Belirlenen Kota Target (₺)": f"{dept_hedef:,.2f} ₺",
-                            "Mevcut Ciro (₺)": f"{dept_satis_toplam:,.2f} ₺",
-                            "Hedefe Kalan Tutar (₺)": kalan_str,
-                            "Başarı Oranı (%)": f"% {basari_yuzde:.1f}"
+                        basari_yuzde = (dept_satis_toplam / dept_hedef) * 100 if dept_hedef > 0 else 0.0
+                        kalan_str = f"{kalan:,.2f} ₺" if kalan > 0 else "0.00 ₺ (Hedef Tamamlandı 🎉)"
+                        
+                        kota_duzenleme_listesi.append({
+                            "Bölüm / Departman": d_name,
+                            "Mevcut Ciro (₺)": round(dept_satis_toplam, 2),
+                            "Yeni Kota (₺)": float(dept_hedef), # Düzenlenebilir kolon
+                            "Hedefe Kalan Tutar": kalan_str,
+                            "Başarı Oranı": f"% {basari_yuzde:.1f}"
                         })
                     
-                    kota_durum_df = pd.DataFrame(kota_durum_verisi)
-                    st.dataframe(kota_durum_df, use_container_width=True)
+                    girdi_df = pd.DataFrame(kota_duzenleme_listesi)
+                    
+                    # Streamlit Data Editör Yapılandırması (Sadece Yeni Kota kolonu düzenlenebilir)
+                    duzenlenmis_durum = st.data_editor(
+                        girdi_df,
+                        column_config={
+                            "Bölüm / Departman": st.column_config.TextColumn(disabled=True),
+                            "Mevcut Ciro (₺)": st.column_config.NumberColumn(format="%.2f ₺", disabled=True),
+                            "Yeni Kota (₺)": st.column_config.NumberColumn(format="%.2f ₺", min_value=0.0, step=1000.0),
+                            "Hedefe Kalan Tutar": st.column_config.TextColumn(disabled=True),
+                            "Başarı Oranı": st.column_config.TextColumn(disabled=True)
+                        },
+                        disabled=["Bölüm / Departman", "Mevcut Ciro (₺)", "Hedefe Kalan Tutar", "Başarı Oranı"],
+                        use_container_width=True,
+                        key="kota_editor_anahtari"
+                    )
+                    
+                    # Veritabanına Değişiklikleri Kaydetme Butonu
+                    if st.button("💾 Kotaları Kaydet ve Güncelle", type="primary"):
+                        conn = get_db_connection()
+                        c = conn.cursor()
+                        for index, row in duzenlenmis_durum.iterrows():
+                            d_adi = row["Bölüm / Departman"]
+                            guncel_kota_degeri = float(row["Yeni Kota (₺)"])
+                            c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur = ?", (guncel_kota_degeri, d_adi))
+                        conn.commit()
+                        conn.close()
+                        st.success("Tüm mağaza alan kotaları başarıyla güncellendi!")
+                        st.rerun()
+                        
                     st.markdown("---")
 
                     try:
