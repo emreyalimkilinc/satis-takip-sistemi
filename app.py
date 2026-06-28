@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import plotly.express as px
 import io
 
@@ -49,7 +49,7 @@ tab1, tab2 = st.tabs(["📝 Yeni Satış Girişi", "🔒 Yönetici Paneli (Admin
 with tab1:
     st.subheader("Günlük Satış Verisi Girişi")
     with st.form("satis_form", clear_on_submit=True):
-        tarih = st.date_input("Satış Tarihi", datetime.now())
+        tarih = st.date_input("Satış Tarihi", datetime.now().date())
         satici = st.selectbox("Satıcı Adı Soyadı", PERSONEL_LISTESI)
         dept = st.selectbox("Departman", DEPARTMAN_LISTESI)
         tutar = st.number_input("Satış Tutarı (₺)", min_value=0.0, step=50.0)
@@ -92,11 +92,11 @@ with tab2:
             conn.commit()
             conn.close()
             st.sidebar.success("Hedef güncellendi!")
-            mevcut_hedef = yeni_hedef
+            st.rerun()
 
         if not df.empty:
-            # Tarih dönüşümünü güvenli bir şekilde yapıyoruz
-            df['tarih'] = pd.to_datetime(df['tarih'])
+            # Tarih dönüşümü nesne karmaşasını önlemek için güvenli formata çekildi
+            df['tarih_dt'] = pd.to_datetime(df['tarih']).dt.date
             
             admin_modu = st.radio("İnceleme Türü Seçin:", [
                 "📅 Tarih Aralıklı Genel Rapor", 
@@ -109,8 +109,8 @@ with tab2:
             # --- MOD 1: TARİH ARALIKLI GENEL RAPOR ---
             if admin_modu == "📅 Tarih Aralıklı Genel Rapor":
                 st.markdown("### 📅 Tarih Aralığı Filtresi (Genel Şirket)")
-                min_date = df['tarih'].min().to_pydatetime()
-                max_date = df['tarih'].max().to_pydatetime()
+                min_date = df['tarih_dt'].min()
+                max_date = df['tarih_dt'].max()
                 
                 varsayilan_baslangic = max_date - timedelta(days=7)
                 if varsayilan_baslangic < min_date:
@@ -124,8 +124,7 @@ with tab2:
                     baslangic_tarihi = tarih_secimi if not isinstance(tarih_secimi, (tuple, list)) else tarih_secimi[0]
                     bitis_tarihi = baslangic_tarihi
                 
-                # Filtreleme saf tarih nesneleri üzerinden yapılıyor (Hata önleyici alan)
-                f_df = df[(df['tarih'] >= pd.to_datetime(baslangic_tarihi)) & (df['tarih'] <= pd.to_datetime(bitis_tarihi))].copy()
+                f_df = df[(df['tarih_dt'] >= baslangic_tarihi) & (df['tarih_dt'] <= bitis_tarihi)].copy()
                 
                 if not f_df.empty:
                     toplam_ciro = f_df['tutar'].sum()
@@ -139,10 +138,8 @@ with tab2:
                     
                     st.markdown("#### 📋 Satış Listesi Detayları")
                     
-                    # Excel Çıktısı için Hazırlık
                     output = io.BytesIO()
                     excel_df = f_df[['tarih', 'satici', 'departman', 'tutar']].copy()
-                    excel_df['tarih'] = excel_df['tarih'].dt.strftime('%Y-%m-%d')
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                         excel_df.to_excel(writer, index=False, sheet_name='Satis_Raporu')
                     processed_data = output.getvalue()
@@ -154,9 +151,8 @@ with tab2:
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )
                     
-                    # HATANIN DÜZELTİLDİĞİ YER: Tabloyu bozmadan sadece ekranda şık göstermek için kopyasını alıyoruz
                     goster_df = f_df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
-                    goster_df['tarih'] = goster_df['tarih'].dt.strftime('%d.%m.%Y')
+                    goster_df['tarih'] = pd.to_datetime(goster_df['tarih']).dt.strftime('%d.%m.%Y')
                     goster_df.columns = ['Kayıt ID', 'Satış Tarihi', 'Satıcı Adı Soyadı', 'Departman', 'Tutar (₺)']
                     st.dataframe(goster_df.sort_values(by='Kayıt ID', ascending=False), use_container_width=True)
                 else:
@@ -169,7 +165,7 @@ with tab2:
                 ham_personel_df = df[df['satici'] == secilen_personel].copy()
                 
                 if not ham_personel_df.empty:
-                    p_min, p_max = ham_personel_df['tarih'].min().to_pydatetime(), ham_personel_df['tarih'].max().to_pydatetime()
+                    p_min, p_max = ham_personel_df['tarih_dt'].min(), ham_personel_df['tarih_dt'].max()
                     p_tarih = st.date_input(f"{secilen_personel} İçin Tarih Aralığı:", value=(p_min, p_max), min_value=p_min, max_value=p_max, key="p_t")
                     
                     if isinstance(p_tarih, tuple) and len(p_tarih) == 2:
@@ -178,7 +174,7 @@ with tab2:
                         p_b = p_tarih if not isinstance(p_tarih, (tuple, list)) else p_tarih[0]
                         p_bit = p_b
                         
-                    personel_df = ham_personel_df[(ham_personel_df['tarih'] >= pd.to_datetime(p_b)) & (ham_personel_df['tarih'] <= pd.to_datetime(p_bit))].copy()
+                    personel_df = ham_personel_df[(ham_personel_df['tarih_dt'] >= p_b) & (ham_personel_df['tarih_dt'] <= p_bit)].copy()
                         
                     if not personel_df.empty:
                         kol1, kol2 = st.columns(2)
@@ -189,7 +185,7 @@ with tab2:
                         st.plotly_chart(fig_p, use_container_width=True)
                         
                         goster_p_df = personel_df[['tarih', 'departman', 'tutar']].copy()
-                        goster_p_df['tarih'] = goster_p_df['tarih'].dt.strftime('%d.%m.%Y')
+                        goster_p_df['tarih'] = pd.to_datetime(goster_p_df['tarih']).dt.strftime('%d.%m.%Y')
                         goster_p_df.columns = ['Satış Tarihi', 'Departman', 'Tutar (₺)']
                         st.dataframe(goster_p_df.sort_values(by='Satış Tarihi', ascending=False), use_container_width=True)
                     else:
@@ -200,7 +196,7 @@ with tab2:
             # --- MOD 3: LİDERLİK TABLOSU (ŞAMPİYONLAR) ---
             elif admin_modu == "🏆 Liderlik Tablosu (Şampiyonlar)":
                 st.markdown("### 🏆 En Çok Satış Yapanlar Sıralaması")
-                l_min, l_max = df['tarih'].min().to_pydatetime(), df['tarih'].max().to_pydatetime()
+                l_min, l_max = df['tarih_dt'].min(), df['tarih_dt'].max()
                 l_tarih = st.date_input("Tarih Aralığı Seçin:", value=(l_min, l_max), key="l_t")
                 
                 if isinstance(l_tarih, tuple) and len(l_tarih) == 2:
@@ -209,7 +205,7 @@ with tab2:
                     l_b = l_tarih if not isinstance(l_tarih, (tuple, list)) else l_tarih[0]
                     l_bit = l_b
                     
-                l_df = df[(df['tarih'] >= pd.to_datetime(l_b)) & (df['tarih'] <= pd.to_datetime(l_bit))].copy()
+                l_df = df[(df['tarih_dt'] >= l_b) & (df['tarih_dt'] <= l_bit)].copy()
                 
                 if not l_df.empty:
                     liderlik = l_df.groupby('satici')['tutar'].sum().reset_index()
@@ -238,7 +234,7 @@ with tab2:
                 st.warning("Buradan sileceğiniz kayıtlar veritabanından kalıcı olarak kaldırılır.")
                 
                 gosterilecek_df = df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
-                gosterilecek_df['tarih'] = gosterilecek_df['tarih'].dt.strftime('%d.%m.%Y')
+                gosterilecek_df['tarih'] = pd.to_datetime(gosterilecek_df['tarih']).dt.strftime('%d.%m.%Y')
                 gosterilecek_df.columns = ['Kayıt ID', 'Satış Tarihi', 'Satıcı Adı Soyadı', 'Departman', 'Tutar (₺)']
                 st.dataframe(gosterilecek_df.sort_values(by='Kayıt ID', ascending=False).head(50), use_container_width=True)
                 
@@ -253,11 +249,12 @@ with tab2:
                             c.execute("DELETE FROM satislar WHERE id = ?", (int(silinecek_id),))
                             conn.commit()
                             conn.close()
-                            st.success(f"ID: {silinecek_id} numaralı hatalı satış kaydı başarıyla silindi! Sayfayı yenileyebilirsiniz.")
+                            st.success(f"ID: {silinecek_id} numaralı kayıt başarıyla silindi!")
+                            st.rerun() # Sayfayı anında yenileyip silinen datayı tablodan kaldırır.
                         else:
                             st.error("Girdiğiniz ID numarasına ait bir satış kaydı bulunamadı!")
         else:
-            st.info("Sistemde henüz kayıtlı veri bulunmuyor.")
+            st.info("Sistemde henüz kayıtlı veri bulunmuyor. İlk satışı yan sekmeden ekleyebilirsiniz.")
             
     elif admin_sifre != "":
         st.error("Hatalı Şifre! İstatistikleri görme yetkiniz yoktur.")
