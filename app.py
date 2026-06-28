@@ -22,14 +22,14 @@ def init_db():
             tutar REAL
         )
     ''')
-    # Hedefler Tablosu (Genel ve Departman Kotaları için)
+    # Hedefler Tablosu
     c.execute('''
         CREATE TABLE IF NOT EXISTS hedefler (
             tur TEXT PRIMARY KEY,
             hedef_tutar REAL
         )
     ''')
-    # Varsayılan Kotalar
+    # Varsayılan Kotalar (aylik_genel tablonun içinde artık "Toplam Mağaza" olarak yönetiliyor)
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('aylik_genel', 500000.0)")
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Giriş kat', 150000.0)")
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Züccaciye', 100000.0)")
@@ -52,14 +52,11 @@ st.set_page_config(page_title="Sales Portal", page_icon="📈", layout="centered
 
 st.markdown("""
     <style>
-    /* Global Saf Karanlık Arka Plan */
     html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
         background-color: #0F172A !important;
         color: #F1F5F9 !important;
         font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     }
-    
-    /* Form Kartı Tasarımı */
     div[data-testid="stForm"], div.stAlert {
         background-color: #1E293B !important;
         border: 1px solid #334155 !important;
@@ -67,38 +64,27 @@ st.markdown("""
         padding: 20px !important;
         box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3) !important;
     }
-    
-    /* Yazı Renkleri */
     label, p, span, div[data-testid="stMarkdownContainer"] p, h1, h2, h3, h4 {
         color: #F1F5F9 !important;
         font-weight: 500 !important;
     }
-    
-    /* Girdiler ve Seçim Kutuları */
     div[data-baseweb="select"], div[data-baseweb="input"], input, div[data-baseweb="popover"] {
         background-color: #0F172A !important;
         color: #F1F5F9 !important;
         border: 1px solid #475569 !important;
         border-radius: 10px !important;
     }
-    
-    /* Form İçindeki Büyük Kaydet Butonları */
     div[data-testid="stForm"] div.stButton > button {
         width: 100% !important;
         height: 52px !important;
         border-radius: 12px !important;
         font-weight: 700 !important;
         font-size: 16px !important;
-        border: none !important;
     }
-    
-    /* Mavi kaydet ve düzenle buton rengi */
     button[kind="primaryFormSubmit"] {
         background-color: #3B82F6 !important;
         color: white !important;
     }
-    
-    /* Üst Sağdaki Geçiş Butonlarının Mobil Uyumu */
     div[data-testid="stHorizontalBlock"] div.stButton > button {
         width: 100% !important;
         height: 40px !important;
@@ -109,8 +95,6 @@ st.markdown("""
         font-weight: 600 !important;
         border: 1px solid #475569 !important;
     }
-    
-    /* Excel İndirme Butonu Özelleştirme */
     div[data-testid="stDownloadButton"] button {
         width: 100% !important;
         height: 46px !important;
@@ -120,13 +104,10 @@ st.markdown("""
         font-weight: 600 !important;
         border: none !important;
     }
-    
-    /* Streamlit Logolarını Gizle */
     #MainMenu, footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
-# Admin Paneli Durum Kontrolü
 if 'admin_modu_aktif' not in st.session_state:
     st.session_state.admin_modu_aktif = False
 
@@ -189,6 +170,7 @@ else:
         df = pd.read_sql_query("SELECT * FROM satislar", conn)
         c = conn.cursor()
         
+        # Veritabanındaki tüm kotaları çekme
         c.execute("SELECT hedef_tutar FROM hedefler WHERE tur='aylik_genel'")
         mevcut_hedef = c.fetchone()[0]
         
@@ -198,17 +180,6 @@ else:
             res = c.fetchone()
             kotalar[d_name] = res[0] if res else 0.0
         conn.close()
-        
-        # --- GENEL HEDEF PANELİ (Açılır Kutu Kaldırıldı, Pratikleştirildi) ---
-        yeni_hedef = st.number_input("🎯 Aylık Genel Mağaza Hedefi (₺):", min_value=0.0, value=float(mevcut_hedef), step=10000.0)
-        if yeni_hedef != mevcut_hedef:
-            conn = get_db_connection()
-            c = conn.cursor()
-            c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur='aylik_genel'", (yeni_hedef,))
-            conn.commit()
-            conn.close()
-            st.success("Genel hedef güncellendi!")
-            st.rerun()
 
         if not df.empty:
             try:
@@ -219,7 +190,7 @@ else:
             admin_modu = st.radio("İnceleme Türü:", ["📊 Genel Rapor", "👤 Personel", "🏆 Şampiyonlar", "⚙️ Düzenle/Sil"], horizontal=True)
             st.markdown("---")
             
-            # --- MOD 1: GENEL RAPOR VE CANLI KOTA DÜZENLEME TABLOSU ---
+            # --- MOD 1: GENEL RAPOR VE TEK TABLODAN KOTA YÖNETİMİ ---
             if admin_modu == "📊 Genel Rapor":
                 try:
                     min_date = df['tarih_formatli'].min().date()
@@ -251,16 +222,30 @@ else:
                         <div style='background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 15px; margin-bottom: 15px;'>
                             <p style='margin:0; color:#94A3B8; font-size:13px; font-weight:600;'>TOPLAM DÖNEM CİROSU</p>
                             <h2 style='margin:5px 0; color:#3B82F6; font-size:24px;'>{toplam_ciro:,.2f} ₺</h2>
-                            <p style='margin:0; color:#10B981; font-size:12px;'>Genel Hedef İlerlemesi: %{yuzde*100:.1f} (Hedef: {mevcut_hedef:,.0f} ₺)</p>
+                            <p style='margin:0; color:#10B981; font-size:12px;'>Mağaza İlerleme Oranı: %{yuzde*100:.1f}</p>
                         </div>
                     """, unsafe_allow_html=True)
                     st.progress(yuzde)
                     
-                    # --- INTERAKTİF DÜZENLENEBİLİR KOTA TABLOSU ---
-                    st.markdown("### 📝 Mağaza Kota Durumu")
-                    st.info("💡 Kotaları değiştirmek için **'Yeni Kota (₺)'** sütunundaki rakamlara çift tıklayıp değiştirebilir, ardından alttaki mavi butona basabilirsiniz.")
+                    # --- TEK BİR PANELDE KOTA VE HEDEF GÜNCELLEME TABLOSU ---
+                    st.markdown("### 📝 Mağaza & Bölüm Kota Durumu")
+                    st.info("💡 Hem **Mağaza Toplam** kotasını hem de alt alanların kotalarını **'Yeni Kota (₺)'** sütunundan çift tıklayarak değiştirebilirsiniz.")
                     
                     kota_duzenleme_listesi = []
+                    
+                    # Önce Mağaza Toplam satırını ekliyoruz
+                    genel_kalan = mevcut_hedef - toplam_ciro
+                    genel_kalan_str = f"{genel_kalan:,.2f} ₺" if genel_kalan > 0 else "0.00 ₺ (Hedef Tamamlandı 🎉)"
+                    kota_duzenleme_listesi.append({
+                        "Bölüm / Departman": "⭐ MAĞAZA TOPLAM",
+                        "Mevcut Ciro (₺)": round(toplam_ciro, 2),
+                        "Yeni Kota (₺)": float(mevcut_hedef), # Düzenlenebilir ana alan
+                        "Hedefe Kalan Tutar": genel_kalan_str,
+                        "Başarı Oranı": f"% {(toplam_ciro / mevcut_hedef) * 100:.1f}" if mevcut_hedef > 0 else "% 0.0",
+                        "db_key": "aylik_genel" # Veritabanı eşleşme anahtarı
+                    })
+                    
+                    # Sonra departmanları döngüyle ekliyoruz
                     for d_name in DEPARTMAN_LISTESI:
                         dept_satis_toplam = f_df[f_df['departman'] == d_name]['tutar'].sum()
                         dept_hedef = kotalar.get(d_name, 0.0)
@@ -272,39 +257,41 @@ else:
                         kota_duzenleme_listesi.append({
                             "Bölüm / Departman": d_name,
                             "Mevcut Ciro (₺)": round(dept_satis_toplam, 2),
-                            "Yeni Kota (₺)": float(dept_hedef), # Düzenlenebilir kolon
+                            "Yeni Kota (₺)": float(dept_hedef),
                             "Hedefe Kalan Tutar": kalan_str,
-                            "Başarı Oranı": f"% {basari_yuzde:.1f}"
+                            "Başarı Oranı": f"% {basari_yuzde:.1f}",
+                            "db_key": d_name
                         })
                     
                     girdi_df = pd.DataFrame(kota_duzenleme_listesi)
                     
-                    # Streamlit Data Editör Yapılandırması (Sadece Yeni Kota kolonu düzenlenebilir)
+                    # Tablo Yapılandırması
                     duzenlenmis_durum = st.data_editor(
                         girdi_df,
                         column_config={
                             "Bölüm / Departman": st.column_config.TextColumn(disabled=True),
                             "Mevcut Ciro (₺)": st.column_config.NumberColumn(format="%.2f ₺", disabled=True),
-                            "Yeni Kota (₺)": st.column_config.NumberColumn(format="%.2f ₺", min_value=0.0, step=1000.0),
+                            "Yeni Kota (₺)": st.column_config.NumberColumn(format="%.2f ₺", min_value=0.0, step=5000.0),
                             "Hedefe Kalan Tutar": st.column_config.TextColumn(disabled=True),
-                            "Başarı Oranı": st.column_config.TextColumn(disabled=True)
+                            "Başarı Oranı": st.column_config.TextColumn(disabled=True),
+                            "db_key": st.column_config.TextColumn(disabled=True)
                         },
-                        disabled=["Bölüm / Departman", "Mevcut Ciro (₺)", "Hedefe Kalan Tutar", "Başarı Oranı"],
+                        disabled=["Bölüm / Departman", "Mevcut Ciro (₺)", "Hedefe Kalan Tutar", "Başarı Oranı", "db_key"],
                         use_container_width=True,
-                        key="kota_editor_anahtari"
+                        key="master_kota_editor"
                     )
                     
-                    # Veritabanına Değişiklikleri Kaydetme Butonu
-                    if st.button("💾 Kotaları Kaydet ve Güncelle", type="primary"):
+                    # Kaydetme Tetikleyicisi
+                    if st.button("💾 Tüm Kotaları (Toplam dahil) Kaydet", type="primary"):
                         conn = get_db_connection()
                         c = conn.cursor()
                         for index, row in duzenlenmis_durum.iterrows():
-                            d_adi = row["Bölüm / Departman"]
-                            guncel_kota_degeri = float(row["Yeni Kota (₺)"])
-                            c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur = ?", (guncel_kota_degeri, d_adi))
+                            db_anahtar = row["db_key"]
+                            guncel_deger = float(row["Yeni Kota (₺)"])
+                            c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur = ?", (guncel_deger, db_anahtar))
                         conn.commit()
                         conn.close()
-                        st.success("Tüm mağaza alan kotaları başarıyla güncellendi!")
+                        st.success("Mağaza Toplam ve Departman kotaları tek seferde güncellendi!")
                         st.rerun()
                         
                     st.markdown("---")
@@ -322,7 +309,6 @@ else:
                         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                             excel_df.to_excel(writer, index=False, sheet_name='Satis_Raporu')
                         processed_data = output.getvalue()
-                        
                         st.download_button(label="📥 Excel Raporu İndir", data=processed_data, file_name=f"Rapor_{baslangic_tarihi}_{bitis_tarihi}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                     except Exception:
                         pass
@@ -333,7 +319,7 @@ else:
                         goster_df.columns = ['ID', 'Tarih', 'Satıcı', 'Departman', 'Tutar (₺)']
                         st.dataframe(goster_df.sort_values(by='ID', ascending=False), use_container_width=True)
                     except Exception:
-                        st.error("Tablo yüklenemedi.")
+                        pass
                 else:
                     st.warning("Veri bulunamadı.")
             
@@ -343,23 +329,15 @@ else:
                 if secilen_personel != "Seçiniz...":
                     ham_personel_df = df[df['satici'] == secilen_personel].copy()
                     if not ham_personel_df.empty:
-                        try:
-                            p_min, p_max = ham_personel_df['tarih_formatli'].min().date(), ham_personel_df['tarih_formatli'].max().date()
-                        except Exception:
-                            p_min, p_max = datetime.now().date(), datetime.now().date()
+                        try: p_min, p_max = ham_personel_df['tarih_formatli'].min().date(), ham_personel_df['tarih_formatli'].max().date()
+                        except: p_min, p_max = datetime.now().date(), datetime.now().date()
                             
                         p_tarih = st.date_input("Dönem Filtresi:", value=(p_min, p_max), min_value=p_min, max_value=p_max)
-                        
-                        if isinstance(p_tarih, tuple) and len(p_tarih) == 2:
-                            p_b, p_bit = p_tarih
-                        else:
-                            p_b = p_tarih if not isinstance(p_tarih, (tuple, list)) else p_tarih[0]
-                            p_bit = p_b
+                        if isinstance(p_tarih, tuple) and len(p_tarih) == 2: p_b, p_bit = p_tarih
+                        else: p_b = p_tarih if not isinstance(p_tarih, (tuple, list)) else p_tarih[0]; p_bit = p_b
                             
-                        try:
-                            personel_df = ham_personel_df[(ham_personel_df['tarih_formatli'].dt.date >= p_b) & (ham_personel_df['tarih_formatli'].dt.date <= p_bit)].copy()
-                        except Exception:
-                            personel_df = pd.DataFrame()
+                        try: personel_df = ham_personel_df[(ham_personel_df['tarih_formatli'].dt.date >= p_b) & (ham_personel_df['tarih_formatli'].dt.date <= p_bit)].copy()
+                        except: personel_df = pd.DataFrame()
                             
                         if not personel_df.empty:
                             st.markdown(f"""
@@ -373,37 +351,28 @@ else:
                                 fig_p = px.pie(personel_df, values='tutar', names='departman', template="plotly_dark")
                                 fig_p.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=20, b=10))
                                 st.plotly_chart(fig_p, use_container_width=True)
-                            except Exception:
-                                pass
+                            except: pass
                             
                             try:
                                 goster_p_df = personel_df[['id', 'tarih', 'departman', 'tutar']].copy()
                                 goster_p_df['tarih'] = pd.to_datetime(goster_p_df['tarih']).dt.strftime('%d.%m.%Y')
                                 goster_p_df.columns = ['ID', 'Tarih', 'Departman', 'Tutar (₺)']
                                 st.dataframe(goster_p_df.sort_values(by='ID', ascending=False), use_container_width=True)
-                            except Exception:
-                                pass
+                            except: pass
                         else:
                             st.warning("Kayıt yok.")
 
             # --- MOD 3: LİDERLİK TABLOSU ---
             elif admin_modu == "🏆 Şampiyonlar":
-                try:
-                    l_min, l_max = df['tarih_formatli'].min().date(), df['tarih_formatli'].max().date()
-                except Exception:
-                    l_min, l_max = datetime.now().date(), datetime.now().date()
+                try: l_min, l_max = df['tarih_formatli'].min().date(), df['tarih_formatli'].max().date()
+                except: l_min, l_max = datetime.now().date(), datetime.now().date()
                     
                 l_tarih = st.date_input("Sıralama Aralığı:", value=(l_min, l_max))
-                if isinstance(l_tarih, tuple) and len(l_tarih) == 2:
-                    l_b, l_bit = l_tarih
-                else:
-                    l_b = l_tarih if not isinstance(l_tarih, (tuple, list)) else l_tarih[0]
-                    l_bit = l_b
+                if isinstance(l_tarih, tuple) and len(l_tarih) == 2: l_b, l_bit = l_tarih
+                else: l_b = l_tarih if not isinstance(l_tarih, (tuple, list)) else l_tarih[0]; l_bit = l_b
                     
-                try:
-                    l_df = df[(df['tarih_formatli'].dt.date >= l_b) & (df['tarih_formatli'].dt.date <= l_bit)].copy()
-                except Exception:
-                    l_df = pd.DataFrame()
+                try: l_df = df[(df['tarih_formatli'].dt.date >= l_b) & (df['tarih_formatli'].dt.date <= l_bit)].copy()
+                except: l_df = pd.DataFrame()
                 
                 if not l_df.empty:
                     liderlik = l_df.groupby('satici')['tutar'].sum().reset_index()
@@ -412,27 +381,21 @@ else:
                     liderlik.columns = ['Personel Adı', 'Toplam Ciro (₺)']
                     
                     st.markdown("#### 🥇 TOP 3 ŞAMPİYON")
-                    if len(liderlik) >= 1:
-                        st.success(f"🥇 **1. {liderlik.iloc[0]['Personel Adı']}:** {liderlik.iloc[0]['Toplam Ciro (₺)']:,.2f} ₺")
-                    if len(liderlik) >= 2:
-                        st.info(f"🥈 **2. {liderlik.iloc[1]['Personel Adı']}:** {liderlik.iloc[1]['Toplam Ciro (₺)']:,.2f} ₺")
-                    if len(liderlik) >= 3:
-                        st.warning(f"🥉 **3. {liderlik.iloc[2]['Personel Adı']}:** {liderlik.iloc[2]['Toplam Ciro (₺)']:,.2f} ₺")
-                    
+                    if len(liderlik) >= 1: st.success(f"🥇 **1. {liderlik.iloc[0]['Personel Adı']}:** {liderlik.iloc[0]['Toplam Ciro (₺)']:,.2f} ₺")
+                    if len(liderlik) >= 2: st.info(f"🥈 **2. {liderlik.iloc[1]['Personel Adı']}:** {liderlik.iloc[1]['Toplam Ciro (₺)']:,.2f} ₺")
+                    if len(liderlik) >= 3: st.warning(f"🥉 **3. {liderlik.iloc[2]['Personel Adı']}:** {liderlik.iloc[2]['Toplam Ciro (₺)']:,.2f} ₺")
                     st.markdown("---")
                     st.dataframe(liderlik, use_container_width=True)
 
-            # --- MOD 4: DOĞRUDAN SATIR GÜNCELLEME VE SİLME PANELİ ---
+            # --- MOD 4: DOĞRUDAN SATIR GÜNCELLEME VE SİLME ---
             elif admin_modu == "⚙️ Düzenle/Sil":
                 st.markdown("### ⚙️ Canlı Satır Güncelleme ve Silme")
-                
                 try:
                     gosterilecek_df = df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
                     gosterilecek_df['tarih'] = pd.to_datetime(gosterilecek_df['tarih']).dt.strftime('%d.%m.%Y')
                     gosterilecek_df.columns = ['ID', 'Tarih', 'Satıcı', 'Departman', 'Tutar (₺)']
                     st.dataframe(gosterilecek_df.sort_values(by='ID', ascending=False).head(15), use_container_width=True)
-                except Exception:
-                    pass
+                except: pass
                 
                 st.markdown("---")
                 islem_tipi = st.radio("İşlem Seçin:", ["✏️ Satırı Seç ve Güncelle", "🚨 Satırı Sil"], horizontal=True)
@@ -449,7 +412,7 @@ else:
                         try: d_idx = DEPARTMAN_LISTESI.index(secilen_satir['departman'])
                         except: d_idx = 0
                         
-                        st.markdown(f"<p style='color:#3B82F6; font-size:13px; font-weight:bold;'>💡 ID {edit_id} için güncelleme formu aşağıda açıldı:</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color:#3B82F6; font-size:13px; font-weight:bold;'>💡 ID {edit_id} güncelleme formu:</p>", unsafe_allow_html=True)
                         
                         with st.form("canli_duzenleme_formu"):
                             yeni_tarih = st.date_input("Tarih Değiştir", eski_tarih)
@@ -457,25 +420,19 @@ else:
                             yeni_dept = st.selectbox("Departman Değiştir", DEPARTMAN_LISTESI, index=d_idx)
                             yeni_tutar = st.number_input("Tutar Değiştir (₺)", min_value=0.0, value=float(secilen_satir['tutar']), step=50.0)
                             
-                            edit_onayi = st.form_submit_button("🔁 DEĞİŞİKLİKLERİ SATIRA UYGULA (GÜNCELLE)")
-                            
+                            edit_onayi = st.form_submit_button("🔁 DEĞİŞİKLİKLERİ SATIRA UYGULA")
                             if edit_onayi:
                                 if yeni_tutar > 0:
                                     conn = get_db_connection()
                                     c = conn.cursor()
-                                    c.execute("""
-                                        UPDATE satislar 
-                                        SET tarih = ?, satici = ?, departman = ?, tutar = ? 
-                                        WHERE id = ?
-                                    """, (yeni_tarih.strftime('%Y-%m-%d'), yeni_satici, yeni_dept, yeni_tutar, int(edit_id)))
+                                    c.execute("UPDATE satislar SET tarih=?, satici=?, departman=?, tutar=? WHERE id=?", 
+                                              (yeni_tarih.strftime('%Y-%m-%d'), yeni_satici, yeni_dept, yeni_tutar, int(edit_id)))
                                     conn.commit()
                                     conn.close()
-                                    st.success(f"Başarılı: ID {edit_id} güncellendi!")
+                                    st.success(f"ID {edit_id} güncellendi!")
                                     st.rerun()
-                                else:
-                                    st.error("Tutar 0'dan büyük olmalıdır.")
-                    else:
-                        st.info("Düzenlenecek kayıt yok.")
+                                else: st.error("Tutar 0'dan büyük olmalıdır.")
+                    else: st.info("Düzenlenecek kayıt yok.")
                                 
                 elif islem_tipi == "🚨 Satırı Sil":
                     mevcut_id_listesi_sil = sorted(df['id'].tolist(), reverse=True)
@@ -483,17 +440,15 @@ else:
                         with st.form("silme_formu"):
                             silinecek_id = st.selectbox("Silinecek Satış ID Seçin:", mevcut_id_listesi_sil)
                             silme_onayi = st.form_submit_button("🚨 SEÇİLİ SATIRI TAMAMEN SİL")
-                            
                             if silme_onayi:
                                 conn = get_db_connection()
                                 c = conn.cursor()
                                 c.execute("DELETE FROM satislar WHERE id = ?", (int(silinecek_id),))
                                 conn.commit()
                                 conn.close()
-                                st.success(f"ID: {silinecek_id} kalıcı olarak silindi.")
+                                st.success(f"ID: {silinecek_id} silindi.")
                                 st.rerun()
-                    else:
-                        st.info("Silinecek kayıt yok.")
+                    else: st.info("Silinecek kayıt yok.")
         else:
             st.info("Henüz veri yok.")
     elif admin_sifre != "":
