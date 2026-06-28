@@ -86,7 +86,7 @@ st.markdown("""
     }
     
     /* Mavi kaydet ve düzenle buton rengi */
-    .st-emotion-cache-1vt4oqj, button[kind="primaryFormSubmit"] {
+    button[kind="primaryFormSubmit"] {
         background-color: #3B82F6 !important;
         color: white !important;
     }
@@ -355,37 +355,52 @@ else:
                     st.markdown("---")
                     st.dataframe(liderlik, use_container_width=True)
 
-            # --- MOD 4: GELİŞMİŞ DÜZENLEME VE SİLME PANELİ ---
+            # --- MOD 4: DOĞRUDAN SATIR GÜNCELLEME VE SİLME PANELİ ---
             elif admin_modu == "⚙️ Düzenle/Sil":
-                st.markdown("### ⚙️ Kayıt Düzenleme ve Temizleme")
+                st.markdown("### ⚙️ Canlı Satır Güncelleme ve Silme")
                 
+                # Tablo listesi
                 try:
                     gosterilecek_df = df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
                     gosterilecek_df['tarih'] = pd.to_datetime(gosterilecek_df['tarih']).dt.strftime('%d.%m.%Y')
                     gosterilecek_df.columns = ['ID', 'Tarih', 'Satıcı', 'Departman', 'Tutar (₺)']
-                    st.dataframe(gosterilecek_df.sort_values(by='ID', ascending=False).head(20), use_container_width=True)
+                    st.dataframe(gosterilecek_df.sort_values(by='ID', ascending=False).head(15), use_container_width=True)
                 except Exception:
                     pass
                 
                 st.markdown("---")
                 
-                # İki ayrı işlem alanı (Düzenle ve Sil)
-                islem_tipi = st.radio("Yapmak İstediğiniz İşlem:", ["✏️ Kaydı Düzenle (Güncelle)", "🚨 Kaydı Kalıcı Olarak Sil"], horizontal=True)
+                islem_tipi = st.radio("İşlem Seçin:", ["✏️ Satırı Seç ve Güncelle", "🚨 Satırı Sil"], horizontal=True)
                 
-                if islem_tipi == "✏️ Kaydı Düzenle (Güncelle)":
-                    with st.form("duzenleme_formu", clear_on_submit=False):
-                        edit_id = st.number_input("Düzenlenecek Satış ID No:", min_value=1, step=1)
-                        st.markdown("<p style='color:#94A3B8; font-size:12px;'>Seçtiğiniz ID numaralı kaydın YENİ bilgilerini giriniz:</p>", unsafe_allow_html=True)
+                if islem_tipi == "✏️ Satırı Seç ve Güncelle":
+                    # Mevcut ID listesini çekip selectbox'a koyuyoruz
+                    mevcut_id_listesi = sorted(df['id'].tolist(), reverse=True)
+                    
+                    if mevcut_id_listesi:
+                        edit_id = st.selectbox("Düzenlenecek Satışın ID Numarasını Seçin:", mevcut_id_listesi)
                         
-                        yeni_tarih = st.date_input("Yeni Satış Tarihi", datetime.now().date())
-                        yeni_satici = st.selectbox("Yeni Satıcı", PERSONEL_LISTESI)
-                        yeni_dept = st.selectbox("Yeni Departman", DEPARTMAN_LISTESI)
-                        yeni_tutar = st.number_input("Yeni Satış Tutarı (₺)", min_value=0.0, step=50.0)
+                        # Seçilen ID'nin mevcut verilerini otomatik çekiyoruz (Canlı veri doldurma)
+                        secilen_satir = df[df['id'] == edit_id].iloc[0]
+                        eski_tarih = datetime.strptime(secilen_satir['tarih'], '%Y-%m-%d').date()
                         
-                        edit_onayi = st.form_submit_button("🔁 BİLGİLERİ GÜNCELLE")
+                        # Personel ve Departman indexlerini bulma koruması
+                        try: s_idx = PERSONEL_LISTESI.index(secilen_satir['satici'])
+                        except: s_idx = 0
+                        try: d_idx = DEPARTMAN_LISTESI.index(secilen_satir['departman'])
+                        except: d_idx = 0
                         
-                        if edit_onayi:
-                            if int(edit_id) in df['id'].values:
+                        st.markdown(f"<p style='color:#3B82F6; font-size:13px; font-weight:bold;'>💡 ID {edit_id} için güncelleme formu aşağıda açıldı:</p>", unsafe_allow_html=True)
+                        
+                        # Düzenleme Formu
+                        with st.form("canli_duzenleme_formu"):
+                            yeni_tarih = st.date_input("Tarih Değiştir", eski_tarih)
+                            yeni_satici = st.selectbox("Satıcı Değiştir", PERSONEL_LISTESI, index=s_idx)
+                            yeni_dept = st.selectbox("Departman Değiştir", DEPARTMAN_LISTESI, index=d_idx)
+                            yeni_tutar = st.number_input("Tutar Değiştir (₺)", min_value=0.0, value=float(secilen_satir['tutar']), step=50.0)
+                            
+                            edit_onayi = st.form_submit_button("🔁 DEĞİŞİKLİKLERİ SATIRA UYGULA (GÜNCELLE)")
+                            
+                            if edit_onayi:
                                 if yeni_tutar > 0:
                                     conn = get_db_connection()
                                     c = conn.cursor()
@@ -396,29 +411,30 @@ else:
                                     """, (yeni_tarih.strftime('%Y-%m-%d'), yeni_satici, yeni_dept, yeni_tutar, int(edit_id)))
                                     conn.commit()
                                     conn.close()
-                                    st.success(f"ID: {edit_id} numaralı kayıt başarıyla güncellendi!")
+                                    st.success(f"Başarılı: ID {edit_id} güncellendi! Yeni bir satır eklenmedi.")
                                     st.rerun()
                                 else:
-                                    st.error("Tutar sıfırdan büyük olmalıdır.")
-                            else:
-                                st.error("Girdiğiniz ID numarasına ait kayıt bulunamadı!")
+                                    st.error("Tutar 0'dan büyük olmalıdır.")
+                    else:
+                        st.info("Düzenlenecek kayıt yok.")
                                 
-                elif islem_tipi == "🚨 Kaydı Kalıcı Olarak Sil":
-                    with st.form("silme_formu"):
-                        silinecek_id = st.number_input("Silinecek Satış ID:", min_value=1, step=1)
-                        silme_onayi = st.form_submit_button("🚨 SEÇİLİ KAYDI SİL")
-                        
-                        if silme_onayi:
-                            if int(silinecek_id) in df['id'].values:
+                elif islem_tipi == "🚨 Satırı Sil":
+                    mevcut_id_listesi_sil = sorted(df['id'].tolist(), reverse=True)
+                    if mevcut_id_listesi_sil:
+                        with st.form("silme_formu"):
+                            silinecek_id = st.selectbox("Silinecek Satış ID Seçin:", mevcut_id_listesi_sil)
+                            silme_onayi = st.form_submit_button("🚨 SEÇİLİ SATIRI TAMAMEN SİL")
+                            
+                            if silme_onayi:
                                 conn = get_db_connection()
                                 c = conn.cursor()
                                 c.execute("DELETE FROM satislar WHERE id = ?", (int(silinecek_id),))
                                 conn.commit()
                                 conn.close()
-                                st.success(f"ID: {silinecek_id} başarıyla silindi!")
+                                st.success(f"ID: {silinecek_id} kalıcı olarak silindi.")
                                 st.rerun()
-                            else:
-                                st.error("ID bulunamadı!")
+                    else:
+                        st.info("Silinecek kayıt yok.")
         else:
             st.info("Henüz veri yok.")
     elif admin_sifre != "":
