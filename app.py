@@ -75,17 +75,20 @@ st.markdown("""
         border-radius: 10px !important;
     }
     
-    /* Form İçindeki Büyük Kaydet Butonu */
+    /* Form İçindeki Büyük Kaydet Butonları */
     div[data-testid="stForm"] div.stButton > button {
         width: 100% !important;
         height: 52px !important;
         border-radius: 12px !important;
-        background: #3B82F6 !important;
-        color: white !important;
         font-weight: 700 !important;
         font-size: 16px !important;
         border: none !important;
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+    }
+    
+    /* Mavi kaydet ve düzenle buton rengi */
+    .st-emotion-cache-1vt4oqj, button[kind="primaryFormSubmit"] {
+        background-color: #3B82F6 !important;
+        color: white !important;
     }
     
     /* Üst Sağdaki Geçiş Butonlarının Mobil Uyumu */
@@ -199,7 +202,7 @@ else:
             except Exception:
                 pass
             
-            admin_modu = st.radio("İnceleme Türü:", ["📊 Genel Rapor", "👤 Personel", "🏆 Şampiyonlar", "🗑️ Düzenle/Sil"], horizontal=True)
+            admin_modu = st.radio("İnceleme Türü:", ["📊 Genel Rapor", "👤 Personel", "🏆 Şampiyonlar", "⚙️ Düzenle/Sil"], horizontal=True)
             st.markdown("---")
             
             # --- MOD 1: GENEL RAPOR ---
@@ -352,32 +355,70 @@ else:
                     st.markdown("---")
                     st.dataframe(liderlik, use_container_width=True)
 
-            # --- MOD 4: KAYIT SİLME ---
-            elif admin_modu == "🗑️ Düzenle/Sil":
-                st.markdown("### 🗑️ Kayıt Temizleme")
+            # --- MOD 4: GELİŞMİŞ DÜZENLEME VE SİLME PANELİ ---
+            elif admin_modu == "⚙️ Düzenle/Sil":
+                st.markdown("### ⚙️ Kayıt Düzenleme ve Temizleme")
+                
                 try:
                     gosterilecek_df = df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
                     gosterilecek_df['tarih'] = pd.to_datetime(gosterilecek_df['tarih']).dt.strftime('%d.%m.%Y')
                     gosterilecek_df.columns = ['ID', 'Tarih', 'Satıcı', 'Departman', 'Tutar (₺)']
-                    st.dataframe(gosterilecek_df.sort_values(by='ID', ascending=False).head(25), use_container_width=True)
+                    st.dataframe(gosterilecek_df.sort_values(by='ID', ascending=False).head(20), use_container_width=True)
                 except Exception:
                     pass
                 
-                with st.form("silme_formu"):
-                    silinecek_id = st.number_input("Silinecek Satış ID:", min_value=1, step=1)
-                    silme_onayi = st.form_submit_button("🚨 SEÇİLİ KAYDI SİL")
-                    
-                    if silme_onayi:
-                        if int(silinecek_id) in df['id'].values:
-                            conn = get_db_connection()
-                            c = conn.cursor()
-                            c.execute("DELETE FROM satislar WHERE id = ?", (int(silinecek_id),))
-                            conn.commit()
-                            conn.close()
-                            st.success(f"ID: {silinecek_id} başarıyla silindi!")
-                            st.rerun()
-                        else:
-                            st.error("ID bulunamadı!")
+                st.markdown("---")
+                
+                # İki ayrı işlem alanı (Düzenle ve Sil)
+                islem_tipi = st.radio("Yapmak İstediğiniz İşlem:", ["✏️ Kaydı Düzenle (Güncelle)", "🚨 Kaydı Kalıcı Olarak Sil"], horizontal=True)
+                
+                if islem_tipi == "✏️ Kaydı Düzenle (Güncelle)":
+                    with st.form("duzenleme_formu", clear_on_submit=False):
+                        edit_id = st.number_input("Düzenlenecek Satış ID No:", min_value=1, step=1)
+                        st.markdown("<p style='color:#94A3B8; font-size:12px;'>Seçtiğiniz ID numaralı kaydın YENİ bilgilerini giriniz:</p>", unsafe_allow_html=True)
+                        
+                        yeni_tarih = st.date_input("Yeni Satış Tarihi", datetime.now().date())
+                        yeni_satici = st.selectbox("Yeni Satıcı", PERSONEL_LISTESI)
+                        yeni_dept = st.selectbox("Yeni Departman", DEPARTMAN_LISTESI)
+                        yeni_tutar = st.number_input("Yeni Satış Tutarı (₺)", min_value=0.0, step=50.0)
+                        
+                        edit_onayi = st.form_submit_button("🔁 BİLGİLERİ GÜNCELLE")
+                        
+                        if edit_onayi:
+                            if int(edit_id) in df['id'].values:
+                                if yeni_tutar > 0:
+                                    conn = get_db_connection()
+                                    c = conn.cursor()
+                                    c.execute("""
+                                        UPDATE satislar 
+                                        SET tarih = ?, satici = ?, departman = ?, tutar = ? 
+                                        WHERE id = ?
+                                    """, (yeni_tarih.strftime('%Y-%m-%d'), yeni_satici, yeni_dept, yeni_tutar, int(edit_id)))
+                                    conn.commit()
+                                    conn.close()
+                                    st.success(f"ID: {edit_id} numaralı kayıt başarıyla güncellendi!")
+                                    st.rerun()
+                                else:
+                                    st.error("Tutar sıfırdan büyük olmalıdır.")
+                            else:
+                                st.error("Girdiğiniz ID numarasına ait kayıt bulunamadı!")
+                                
+                elif islem_tipi == "🚨 Kaydı Kalıcı Olarak Sil":
+                    with st.form("silme_formu"):
+                        silinecek_id = st.number_input("Silinecek Satış ID:", min_value=1, step=1)
+                        silme_onayi = st.form_submit_button("🚨 SEÇİLİ KAYDI SİL")
+                        
+                        if silme_onayi:
+                            if int(silinecek_id) in df['id'].values:
+                                conn = get_db_connection()
+                                c = conn.cursor()
+                                c.execute("DELETE FROM satislar WHERE id = ?", (int(silinecek_id),))
+                                conn.commit()
+                                conn.close()
+                                st.success(f"ID: {silinecek_id} başarıyla silindi!")
+                                st.rerun()
+                            else:
+                                st.error("ID bulunamadı!")
         else:
             st.info("Henüz veri yok.")
     elif admin_sifre != "":
