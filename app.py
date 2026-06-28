@@ -278,34 +278,39 @@ if not st.session_state.admin_modu_aktif:
         df_personel = pd.read_sql_query("SELECT * FROM satislar WHERE satici = ?", conn, params=(st.session_state.aktif_satici_adi,))
         conn.close()
         
+        st.markdown("#### 📊 Satış Performans Grafiği")
         if not df_personel.empty:
-            st.markdown("#### 📊 Satış Performans Grafiği")
             df_grafik = df_personel.groupby('tarih').agg({'tutar': 'sum'}).reset_index()
-            # Kesintisiz kronolojik sıralama için datetime dönüşümü ve sıralama
             df_grafik['tarih_dt'] = pd.to_datetime(df_grafik['tarih'])
             df_grafik = df_grafik.sort_values('tarih_dt')
             df_grafik['Tarih_Gosterim'] = df_grafik['tarih_dt'].dt.strftime('%d.%m')
             
-            # --- DÜZELTİLMİŞ KATEGORİK PERFORMANS GRAFİĞİ ---
-            fig_user = go.Figure()
-            fig_user.add_trace(go.Scatter(
-                x=df_grafik['Tarih_Gosterim'], y=df_grafik['tutar'],
-                mode='lines+markers',
-                line=dict(color='#10B981', width=3),
-                marker=dict(size=8, color='#F59E0B', borderwidth=2),
-                fill='tozeroy',
-                fillcolor='rgba(16, 185, 129, 0.15)',
-                name='Ciro',
-                hovertemplate='<b>Tarih:</b> %{x}<br><b>Net Ciro:</b> %{y:,} TL<extra></extra>'
-            ))
-            fig_user.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
-                xaxis=dict(type='category', showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
-                yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
-            )
-            st.plotly_chart(fig_user, use_container_width=True, config={'displayModeBar': False})
+            # --- HATASIZ GÜVENLİ GRAFİK ÇİZİMİ ---
+            if not df_grafik.empty:
+                fig_user = go.Figure()
+                fig_user.add_trace(go.Scatter(
+                    x=df_grafik['Tarih_Gosterim'], y=df_grafik['tutar'],
+                    mode='lines+markers',
+                    line=dict(color='#10B981', width=3),
+                    marker=dict(size=8, color='#F59E0B', borderwidth=2),
+                    fill='tozeroy',
+                    fillcolor='rgba(16, 185, 129, 0.15)',
+                    name='Ciro',
+                    hovertemplate='<b>Tarih:</b> %{x}<br><b>Net Ciro:</b> %{y:,} TL<extra></extra>'
+                ))
+                fig_user.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
+                    xaxis=dict(type='category', showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
+                    yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
+                )
+                st.plotly_chart(fig_user, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.info("📉 Grafiği çizmek için yeterli veri bulunamadı.")
+        else:
+            st.info("✨ Henüz herhangi bir satış kaydınız bulunmamaktadır. Satış ekledikçe grafiğiniz burada anlık oluşacaktır.")
 
+        if not df_personel.empty:
             st.markdown("#### 📋 Son İşlemleriniz")
             df_personel = df_personel.sort_values(by='id', ascending=False)
             for _, row in df_personel.iterrows():
@@ -376,7 +381,6 @@ else:
                 </div>
             """, unsafe_allow_html=True)
             
-            # --- DÜZELTİLMİŞ MAĞAZA GÜNLÜK CİRO GRAFİĞİ ---
             if not f_df.empty:
                 st.markdown("#### 📊 Mağaza Günlük Ciro Dağılımı")
                 df_magaza_grafik = f_df.groupby('tarih').agg({'tutar': 'sum'}).reset_index()
