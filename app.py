@@ -29,7 +29,7 @@ def init_db():
             hedef_tutar REAL
         )
     ''')
-    # Varsayılan Kotalar (aylik_genel tablonun içinde artık "Toplam Mağaza" olarak yönetiliyor)
+    # Varsayılan Kotalar
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('aylik_genel', 500000.0)")
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Giriş kat', 150000.0)")
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Züccaciye', 100000.0)")
@@ -170,7 +170,6 @@ else:
         df = pd.read_sql_query("SELECT * FROM satislar", conn)
         c = conn.cursor()
         
-        # Veritabanındaki tüm kotaları çekme
         c.execute("SELECT hedef_tutar FROM hedefler WHERE tur='aylik_genel'")
         mevcut_hedef = c.fetchone()[0]
         
@@ -190,29 +189,23 @@ else:
             admin_modu = st.radio("İnceleme Türü:", ["📊 Genel Rapor", "👤 Personel", "🏆 Şampiyonlar", "⚙️ Düzenle/Sil"], horizontal=True)
             st.markdown("---")
             
-            # --- MOD 1: GENEL RAPOR VE TEK TABLODAN KOTA YÖNETİMİ ---
+            # Tarih Filtreleme Mantığı (Genel Alanlar için)
+            try:
+                min_date = df['tarih_formatli'].min().date()
+                max_date = df['tarih_formatli'].max().date()
+                varsayilan_baslangic = max_date - timedelta(days=7)
+                if varsayilan_baslangic < min_date: varsayilan_baslangic = min_date
+            except:
+                min_date, max_date, varsayilan_baslangic = datetime.now().date(), datetime.now().date(), datetime.now().date()
+            
+            # --- MOD 1: GENEL RAPOR VE KOTA YÖNETİMİ ---
             if admin_modu == "📊 Genel Rapor":
-                try:
-                    min_date = df['tarih_formatli'].min().date()
-                    max_date = df['tarih_formatli'].max().date()
-                    varsayilan_baslangic = max_date - timedelta(days=7)
-                    if varsayilan_baslangic < min_date:
-                        varsayilan_baslangic = min_date
-                except Exception:
-                    min_date, max_date, varsayilan_baslangic = datetime.now().date(), datetime.now().date(), datetime.now().date()
-                    
                 tarih_secimi = st.date_input("Filtre Aralığı:", value=(varsayilan_baslangic, max_date), min_value=min_date, max_value=max_date)
+                if isinstance(tarih_secimi, tuple) and len(tarih_secimi) == 2: baslangic_tarihi, bitis_tarihi = tarih_secimi
+                else: baslangic_tarihi = tarih_secimi if not isinstance(tarih_secimi, (tuple, list)) else tarih_secimi[0]; bitis_tarihi = baslangic_tarihi
                 
-                if isinstance(tarih_secimi, tuple) and len(tarih_secimi) == 2:
-                    baslangic_tarihi, bitis_tarihi = tarih_secimi
-                else:
-                    baslangic_tarihi = tarih_secimi if not isinstance(tarih_secimi, (tuple, list)) else tarih_secimi[0]
-                    bitis_tarihi = baslangic_tarihi
-                
-                try:
-                    f_df = df[(df['tarih_formatli'].dt.date >= baslangic_tarihi) & (df['tarih_formatli'].dt.date <= bitis_tarihi)].copy()
-                except Exception:
-                    f_df = pd.DataFrame()
+                try: f_df = df[(df['tarih_formatli'].dt.date >= baslangic_tarihi) & (df['tarih_formatli'].dt.date <= bitis_tarihi)].copy()
+                except: f_df = pd.DataFrame()
                 
                 if not f_df.empty:
                     toplam_ciro = f_df['tutar'].sum()
@@ -227,45 +220,32 @@ else:
                     """, unsafe_allow_html=True)
                     st.progress(yuzde)
                     
-                    # --- TEK BİR PANELDE KOTA VE HEDEF GÜNCELLEME TABLOSU ---
+                    # Kota Düzenleme Bölümü
                     st.markdown("### 📝 Mağaza & Bölüm Kota Durumu")
-                    st.info("💡 Hem **Mağaza Toplam** kotasını hem de alt alanların kotalarını **'Yeni Kota (₺)'** sütunundan çift tıklayarak değiştirebilirsiniz.")
-                    
                     kota_duzenleme_listesi = []
-                    
-                    # Önce Mağaza Toplam satırını ekliyoruz
                     genel_kalan = mevcut_hedef - toplam_ciro
-                    genel_kalan_str = f"{genel_kalan:,.2f} ₺" if genel_kalan > 0 else "0.00 ₺ (Hedef Tamamlandı 🎉)"
                     kota_duzenleme_listesi.append({
                         "Bölüm / Departman": "⭐ MAĞAZA TOPLAM",
                         "Mevcut Ciro (₺)": round(toplam_ciro, 2),
-                        "Yeni Kota (₺)": float(mevcut_hedef), # Düzenlenebilir ana alan
-                        "Hedefe Kalan Tutar": genel_kalan_str,
+                        "Yeni Kota (₺)": float(mevcut_hedef),
+                        "Hedefe Kalan Tutar": f"{genel_kalan:,.2f} ₺" if genel_kalan > 0 else "0.00 ₺ (Hedef Tamamlandı 🎉)",
                         "Başarı Oranı": f"% {(toplam_ciro / mevcut_hedef) * 100:.1f}" if mevcut_hedef > 0 else "% 0.0",
-                        "db_key": "aylik_genel" # Veritabanı eşleşme anahtarı
+                        "db_key": "aylik_genel"
                     })
-                    
-                    # Sonra departmanları döngüyle ekliyoruz
                     for d_name in DEPARTMAN_LISTESI:
                         dept_satis_toplam = f_df[f_df['departman'] == d_name]['tutar'].sum()
                         dept_hedef = kotalar.get(d_name, 0.0)
                         kalan = dept_hedef - dept_satis_toplam
-                        
-                        basari_yuzde = (dept_satis_toplam / dept_hedef) * 100 if dept_hedef > 0 else 0.0
-                        kalan_str = f"{kalan:,.2f} ₺" if kalan > 0 else "0.00 ₺ (Hedef Tamamlandı 🎉)"
-                        
                         kota_duzenleme_listesi.append({
                             "Bölüm / Departman": d_name,
                             "Mevcut Ciro (₺)": round(dept_satis_toplam, 2),
                             "Yeni Kota (₺)": float(dept_hedef),
-                            "Hedefe Kalan Tutar": kalan_str,
-                            "Başarı Oranı": f"% {basari_yuzde:.1f}",
+                            "Hedefe Kalan Tutar": f"{kalan:,.2f} ₺" if kalan > 0 else "0.00 ₺ (Hedef Tamamlandı 🎉)",
+                            "Başarı Oranı": f"% {(dept_satis_toplam / dept_hedef) * 100:.1f}" if dept_hedef > 0 else "% 0.0",
                             "db_key": d_name
                         })
                     
                     girdi_df = pd.DataFrame(kota_duzenleme_listesi)
-                    
-                    # Tablo Yapılandırması
                     duzenlenmis_durum = st.data_editor(
                         girdi_df,
                         column_config={
@@ -281,45 +261,29 @@ else:
                         key="master_kota_editor"
                     )
                     
-                    # Kaydetme Tetikleyicisi
-                    if st.button("💾 Tüm Kotaları (Toplam dahil) Kaydet", type="primary"):
+                    if st.button("💾 Tüm Kotaları Kaydet", type="primary"):
                         conn = get_db_connection()
                         c = conn.cursor()
                         for index, row in duzenlenmis_durum.iterrows():
-                            db_anahtar = row["db_key"]
-                            guncel_deger = float(row["Yeni Kota (₺)"])
-                            c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur = ?", (guncel_deger, db_anahtar))
+                            c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur = ?", (float(row["Yeni Kota (₺)"]), row["db_key"]))
                         conn.commit()
                         conn.close()
-                        st.success("Mağaza Toplam ve Departman kotaları tek seferde güncellendi!")
+                        st.success("Kotalar başarıyla güncellendi!")
                         st.rerun()
                         
                     st.markdown("---")
-
-                    try:
-                        fig = px.bar(f_df, x='satici', y='tutar', color='departman', template="plotly_dark")
-                        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=20, b=10))
-                        st.plotly_chart(fig, use_container_width=True)
-                    except Exception:
-                        pass
+                    fig = px.bar(f_df, x='satici', y='tutar', color='departman', template="plotly_dark")
+                    fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=20, b=10))
+                    st.plotly_chart(fig, use_container_width=True)
                     
-                    try:
-                        output = io.BytesIO()
-                        excel_df = f_df[['tarih', 'satici', 'departman', 'tutar']].copy()
-                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                            excel_df.to_excel(writer, index=False, sheet_name='Satis_Raporu')
-                        processed_data = output.getvalue()
-                        st.download_button(label="📥 Excel Raporu İndir", data=processed_data, file_name=f"Rapor_{baslangic_tarihi}_{bitis_tarihi}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                    except Exception:
-                        pass
+                    # Kayıtların Alt Tablosu (SIRA NUMARALI)
+                    goster_df = f_df.sort_values(by='id', ascending=False).reset_index(drop=True)
+                    goster_df.index = goster_df.index + 1 # 1'den başla
+                    goster_df = goster_df.reset_index().rename(columns={'index': 'No'})
+                    goster_df['tarih'] = pd.to_datetime(goster_df['tarih']).dt.strftime('%d.%m.%Y')
                     
-                    try:
-                        goster_df = f_df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
-                        goster_df['tarih'] = pd.to_datetime(goster_df['tarih']).dt.strftime('%d.%m.%Y')
-                        goster_df.columns = ['ID', 'Tarih', 'Satıcı', 'Departman', 'Tutar (₺)']
-                        st.dataframe(goster_df.sort_values(by='ID', ascending=False), use_container_width=True)
-                    except Exception:
-                        pass
+                    st.markdown("#### 📦 Dönem İçi Satış Kayıtları")
+                    st.dataframe(goster_df[['No', 'tarih', 'satici', 'departman', 'tutar']].rename(columns={'tarih':'Tarih','satici':'Satıcı','departman':'Departman','tutar':'Tutar (₺)'}), use_container_width=True)
                 else:
                     st.warning("Veri bulunamadı.")
             
@@ -331,124 +295,104 @@ else:
                     if not ham_personel_df.empty:
                         try: p_min, p_max = ham_personel_df['tarih_formatli'].min().date(), ham_personel_df['tarih_formatli'].max().date()
                         except: p_min, p_max = datetime.now().date(), datetime.now().date()
-                            
                         p_tarih = st.date_input("Dönem Filtresi:", value=(p_min, p_max), min_value=p_min, max_value=p_max)
                         if isinstance(p_tarih, tuple) and len(p_tarih) == 2: p_b, p_bit = p_tarih
                         else: p_b = p_tarih if not isinstance(p_tarih, (tuple, list)) else p_tarih[0]; p_bit = p_b
-                            
-                        try: personel_df = ham_personel_df[(ham_personel_df['tarih_formatli'].dt.date >= p_b) & (ham_personel_df['tarih_formatli'].dt.date <= p_bit)].copy()
-                        except: personel_df = pd.DataFrame()
-                            
+                        
+                        personel_df = ham_personel_df[(ham_personel_df['tarih_formatli'].dt.date >= p_b) & (ham_personel_df['tarih_formatli'].dt.date <= p_bit)].sort_values(by='id', ascending=False).reset_index(drop=True)
                         if not personel_df.empty:
-                            st.markdown(f"""
-                                <div style='background-color: #1E293B; border: 1px solid #475569; border-radius: 10px; padding: 12px; margin-bottom:15px;'>
-                                    <p style='margin:0; color:#3B82F6;'><b>💰 Toplam Ciro:</b> {personel_df['tutar'].sum():,.2f} ₺</p>
-                                    <p style='margin:5px 0 0 0; color:#3B82F6;'><b>📦 Satış Adedi:</b> {len(personel_df)} Adet</p>
-                                </div>
-                            """, unsafe_allow_html=True)
+                            st.markdown(f"**💰 Toplam Ciro:** {personel_df['tutar'].sum():,.2f} ₺ | **📦 Satış Adedi:** {len(personel_df)} Adet")
                             
-                            try:
-                                fig_p = px.pie(personel_df, values='tutar', names='departman', template="plotly_dark")
-                                fig_p.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=20, b=10))
-                                st.plotly_chart(fig_p, use_container_width=True)
-                            except: pass
-                            
-                            try:
-                                goster_p_df = personel_df[['id', 'tarih', 'departman', 'tutar']].copy()
-                                goster_p_df['tarih'] = pd.to_datetime(goster_p_df['tarih']).dt.strftime('%d.%m.%Y')
-                                goster_p_df.columns = ['ID', 'Tarih', 'Departman', 'Tutar (₺)']
-                                st.dataframe(goster_p_df.sort_values(by='ID', ascending=False), use_container_width=True)
-                            except: pass
-                        else:
-                            st.warning("Kayıt yok.")
+                            personel_df.index = personel_df.index + 1
+                            goster_p = personel_df.reset_index().rename(columns={'index': 'No'})
+                            goster_p['tarih'] = pd.to_datetime(goster_p['tarih']).dt.strftime('%d.%m.%Y')
+                            st.dataframe(goster_p[['No', 'tarih', 'departman', 'tutar']].rename(columns={'tarih':'Tarih','departman':'Departman','tutar':'Tutar (₺)'}), use_container_width=True)
+                        else: st.warning("Kayıt yok.")
 
             # --- MOD 3: LİDERLİK TABLOSU ---
             elif admin_modu == "🏆 Şampiyonlar":
-                try: l_min, l_max = df['tarih_formatli'].min().date(), df['tarih_formatli'].max().date()
-                except: l_min, l_max = datetime.now().date(), datetime.now().date()
-                    
-                l_tarih = st.date_input("Sıralama Aralığı:", value=(l_min, l_max))
+                l_tarih = st.date_input("Sıralama Aralığı:", value=(varsayilan_baslangic, max_date))
                 if isinstance(l_tarih, tuple) and len(l_tarih) == 2: l_b, l_bit = l_tarih
                 else: l_b = l_tarih if not isinstance(l_tarih, (tuple, list)) else l_tarih[0]; l_bit = l_b
-                    
-                try: l_df = df[(df['tarih_formatli'].dt.date >= l_b) & (df['tarih_formatli'].dt.date <= l_bit)].copy()
-                except: l_df = pd.DataFrame()
                 
+                l_df = df[(df['tarih_formatli'].dt.date >= l_b) & (df['tarih_formatli'].dt.date <= l_bit)].copy()
                 if not l_df.empty:
-                    liderlik = l_df.groupby('satici')['tutar'].sum().reset_index()
-                    liderlik = liderlik.sort_values(by='tutar', ascending=False).reset_index(drop=True)
+                    liderlik = l_df.groupby('satici')['tutar'].sum().reset_index().sort_values(by='tutar', ascending=False).reset_index(drop=True)
                     liderlik.index = liderlik.index + 1
-                    liderlik.columns = ['Personel Adı', 'Toplam Ciro (₺)']
-                    
-                    st.markdown("#### 🥇 TOP 3 ŞAMPİYON")
-                    if len(liderlik) >= 1: st.success(f"🥇 **1. {liderlik.iloc[0]['Personel Adı']}:** {liderlik.iloc[0]['Toplam Ciro (₺)']:,.2f} ₺")
-                    if len(liderlik) >= 2: st.info(f"🥈 **2. {liderlik.iloc[1]['Personel Adı']}:** {liderlik.iloc[1]['Toplam Ciro (₺)']:,.2f} ₺")
-                    if len(liderlik) >= 3: st.warning(f"🥉 **3. {liderlik.iloc[2]['Personel Adı']}:** {liderlik.iloc[2]['Toplam Ciro (₺)']:,.2f} ₺")
-                    st.markdown("---")
-                    st.dataframe(liderlik, use_container_width=True)
+                    st.dataframe(liderlik.reset_index().rename(columns={'index':'Sıra','satici':'Personel Adı','tutar':'Toplam Ciro (₺)'}), use_container_width=True)
 
-            # --- MOD 4: DOĞRUDAN SATIR GÜNCELLEME VE SİLME ---
+            # --- MOD 4: 1'DEN BAŞLAYAN NO İLE DÜZENLEME VE SİLME ---
             elif admin_modu == "⚙️ Düzenle/Sil":
-                st.markdown("### ⚙️ Canlı Satır Güncelleme ve Silme")
-                try:
-                    gosterilecek_df = df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
-                    gosterilecek_df['tarih'] = pd.to_datetime(gosterilecek_df['tarih']).dt.strftime('%d.%m.%Y')
-                    gosterilecek_df.columns = ['ID', 'Tarih', 'Satıcı', 'Departman', 'Tutar (₺)']
-                    st.dataframe(gosterilecek_df.sort_values(by='ID', ascending=False).head(15), use_container_width=True)
-                except: pass
+                st.markdown("### ⚙️ Kolay Sıra No (No) ile Satır Güncelleme ve Silme")
+                
+                # Mevcut tüm verileri listele ve kullanıcı dostu 1,2,3 sıra numarası ata
+                islem_df = df.sort_values(by='id', ascending=False).reset_index(drop=True)
+                islem_df.index = islem_df.index + 1 # 1'den başlat
+                islem_df = islem_df.reset_index().rename(columns={'index': 'No'})
+                
+                gosterilecek_df = islem_df.copy()
+                gosterilecek_df['tarih'] = pd.to_datetime(gosterilecek_df['tarih']).dt.strftime('%d.%m.%Y')
+                st.dataframe(gosterilecek_df[['No', 'tarih', 'satici', 'departman', 'tutar']].rename(columns={'tarih':'Tarih','satici':'Satıcı','departman':'Departman','tutar':'Tutar (₺)'}), use_container_width=True)
                 
                 st.markdown("---")
-                islem_tipi = st.radio("İşlem Seçin:", ["✏️ Satırı Seç ve Güncelle", "🚨 Satırı Sil"], horizontal=True)
+                islem_tipi = st.radio("Yapılacak İşlem:", ["✏️ Sıra No Seç ve Güncelle", "🚨 Sıra No Seç ve Sil"], horizontal=True)
                 
-                if islem_tipi == "✏️ Satırı Seç ve Güncelle":
-                    mevcut_id_listesi = sorted(df['id'].tolist(), reverse=True)
-                    if mevcut_id_listesi:
-                        edit_id = st.selectbox("Düzenlenecek Satışın ID Numarasını Seçin:", mevcut_id_listesi)
-                        secilen_satir = df[df['id'] == edit_id].iloc[0]
-                        eski_tarih = datetime.strptime(secilen_satir['tarih'], '%Y-%m-%d').date()
+                mevcut_no_listesi = islem_df['No'].tolist()
+                
+                if mevcut_no_listesi:
+                    if islem_tipi == "✏️ Sıra No Seç ve Güncelle":
+                        secilen_no = st.selectbox("Düzenlemek istediğiniz satışın solundaki 'No' değerini seçin:", mevcut_no_listesi)
                         
+                        # Seçilen No değerine ait veritabanı gerçek ID'sini bulma
+                        secilen_satir = islem_df[islem_df['No'] == secilen_no].iloc[0]
+                        gercek_db_id = int(secilen_satir['id'])
+                        
+                        eski_tarih = datetime.strptime(secilen_satir['tarih'], '%Y-%m-%d').date()
                         try: s_idx = PERSONEL_LISTESI.index(secilen_satir['satici'])
                         except: s_idx = 0
                         try: d_idx = DEPARTMAN_LISTESI.index(secilen_satir['departman'])
                         except: d_idx = 0
                         
-                        st.markdown(f"<p style='color:#3B82F6; font-size:13px; font-weight:bold;'>💡 ID {edit_id} güncelleme formu:</p>", unsafe_allow_html=True)
+                        st.markdown(f"<p style='color:#3B82F6; font-size:13px; font-weight:bold;'>💡 No {secilen_no} için Düzenleme Formu:</p>", unsafe_allow_html=True)
                         
                         with st.form("canli_duzenleme_formu"):
-                            yeni_tarih = st.date_input("Tarih Değiştir", eski_tarih)
-                            yeni_satici = st.selectbox("Satıcı Değiştir", PERSONEL_LISTESI, index=s_idx)
-                            yeni_dept = st.selectbox("Departman Değiştir", DEPARTMAN_LISTESI, index=d_idx)
-                            yeni_tutar = st.number_input("Tutar Değiştir (₺)", min_value=0.0, value=float(secilen_satir['tutar']), step=50.0)
+                            yeni_tarih = st.date_input("Tarih", eski_tarih)
+                            yeni_satici = st.selectbox("Satıcı", PERSONEL_LISTESI, index=s_idx)
+                            yeni_dept = st.selectbox("Departman", DEPARTMAN_LISTESI, index=d_idx)
+                            yeni_tutar = st.number_input("Tutar (₺)", min_value=0.0, value=float(secilen_satir['tutar']), step=50.0)
                             
-                            edit_onayi = st.form_submit_button("🔁 DEĞİŞİKLİKLERİ SATIRA UYGULA")
+                            edit_onayi = st.form_submit_button("🔁 DEĞİŞİKLİKLERİ KAYDET")
                             if edit_onayi:
                                 if yeni_tutar > 0:
                                     conn = get_db_connection()
                                     c = conn.cursor()
                                     c.execute("UPDATE satislar SET tarih=?, satici=?, departman=?, tutar=? WHERE id=?", 
-                                              (yeni_tarih.strftime('%Y-%m-%d'), yeni_satici, yeni_dept, yeni_tutar, int(edit_id)))
+                                              (yeni_tarih.strftime('%Y-%m-%d'), yeni_satici, yeni_dept, yeni_tutar, gercek_db_id))
                                     conn.commit()
                                     conn.close()
-                                    st.success(f"ID {edit_id} güncellendi!")
+                                    st.success(f"No {secilen_no} başarıyla güncellendi!")
                                     st.rerun()
                                 else: st.error("Tutar 0'dan büyük olmalıdır.")
-                    else: st.info("Düzenlenecek kayıt yok.")
                                 
-                elif islem_tipi == "🚨 Satırı Sil":
-                    mevcut_id_listesi_sil = sorted(df['id'].tolist(), reverse=True)
-                    if mevcut_id_listesi_sil:
+                    elif islem_tipi == "🚨 Sıra No Seç ve Sil":
                         with st.form("silme_formu"):
-                            silinecek_id = st.selectbox("Silinecek Satış ID Seçin:", mevcut_id_listesi_sil)
-                            silme_onayi = st.form_submit_button("🚨 SEÇİLİ SATIRI TAMAMEN SİL")
+                            silinecek_no = st.selectbox("Silmek istediğiniz satışın solundaki 'No' değerini seçin:", mevcut_no_listesi)
+                            
+                            # Seçilen No değerine ait veritabanı gerçek ID'sini bulma
+                            silinecek_satir = islem_df[islem_df['No'] == silinecek_no].iloc[0]
+                            gercek_db_id = int(silinecek_satir['id'])
+                            
+                            silme_onayi = st.form_submit_button("🚨 SEÇİLİ SATIŞI KALICI OLARAK SİL")
                             if silme_onayi:
                                 conn = get_db_connection()
                                 c = conn.cursor()
-                                c.execute("DELETE FROM satislar WHERE id = ?", (int(silinecek_id),))
+                                c.execute("DELETE FROM satislar WHERE id = ?", (gercek_db_id,))
                                 conn.commit()
                                 conn.close()
-                                st.success(f"ID: {silinecek_id} silindi.")
+                                st.success(f"No {silinecek_no} olan satış kalıcı olarak silindi.")
                                 st.rerun()
-                    else: st.info("Silinecek kayıt yok.")
+                else:
+                    st.info("Kayıt bulunamadı.")
         else:
             st.info("Henüz veri yok.")
     elif admin_sifre != "":
