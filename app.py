@@ -98,7 +98,7 @@ st.markdown("""
         color: white !important;
     }
     
-    /* PREMIUM PREMIUM KARTLAR */
+    /* PREMIUM KARTLAR */
     .dashboard-card {
         background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
         border: 1px solid #334155;
@@ -207,7 +207,6 @@ if not st.session_state.admin_modu_aktif:
         kalan_kota = user_kota - user_toplam_ciro
         user_yuzde = min(max(user_toplam_ciro / user_kota, 0.0), 1.0)
         
-        # Premium Tasarımlı Personel Kota Kartı
         st.markdown(f"""
             <div class="dashboard-card">
                 <h3>🎯 Güncel Kota Durumunuz</h3>
@@ -217,7 +216,7 @@ if not st.session_state.admin_modu_aktif:
         """, unsafe_allow_html=True)
         st.progress(user_yuzde)
 
-        # HATA GEÇİRMEZ SATIŞ FORMU
+        # SATIŞ FORMU
         with st.form("satis_form", clear_on_submit=True):
             tarih = st.date_input("Satış Tarihi", datetime.now().date())
             dept = st.selectbox("Departman", DEPARTMAN_LISTESI)
@@ -281,25 +280,28 @@ if not st.session_state.admin_modu_aktif:
         
         if not df_personel.empty:
             st.markdown("#### 📊 Satış Performans Grafiği")
-            df_grafik = df_personel.groupby('tarih').agg({'tutar': 'sum'}).reset_index().sort_values('tarih')
-            df_grafik['Tarih'] = pd.to_datetime(df_grafik['tarih']).dt.strftime('%d.%m')
+            df_grafik = df_personel.groupby('tarih').agg({'tutar': 'sum'}).reset_index()
+            # Kesintisiz kronolojik sıralama için datetime dönüşümü ve sıralama
+            df_grafik['tarih_dt'] = pd.to_datetime(df_grafik['tarih'])
+            df_grafik = df_grafik.sort_values('tarih_dt')
+            df_grafik['Tarih_Gosterim'] = df_grafik['tarih_dt'].dt.strftime('%d.%m')
             
-            # --- PROFESYONEL PERSONEL GRAFİĞİ (ALAN DOLGULU) ---
+            # --- DÜZELTİLMİŞ KATEGORİK PERFORMANS GRAFİĞİ ---
             fig_user = go.Figure()
             fig_user.add_trace(go.Scatter(
-                x=df_grafik['Tarih'], y=df_grafik['tutar'],
+                x=df_grafik['Tarih_Gosterim'], y=df_grafik['tutar'],
                 mode='lines+markers',
                 line=dict(color='#10B981', width=3),
                 marker=dict(size=8, color='#F59E0B', borderwidth=2),
                 fill='tozeroy',
                 fillcolor='rgba(16, 185, 129, 0.15)',
-                name='Günlük Ciro',
-                hovertemplate='<b>Tarih:</b> %{x}<br><b>Ciro:</b> %{y:,} TL<extra></extra>'
+                name='Ciro',
+                hovertemplate='<b>Tarih:</b> %{x}<br><b>Net Ciro:</b> %{y:,} TL<extra></extra>'
             ))
             fig_user.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                 margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
-                xaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
+                xaxis=dict(type='category', showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
                 yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
             )
             st.plotly_chart(fig_user, use_container_width=True, config={'displayModeBar': False})
@@ -367,7 +369,6 @@ else:
 
             toplam_ciro = f_df['tutar'].sum() if not f_df.empty else 0
             
-            # Premium Mağaza Ciro Kartı
             st.markdown(f"""
                 <div class="dashboard-card" style="background: linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%); border-color: #3B82F6;">
                     <h3 style="color: #93C5FD;">🏢 Mağaza Seçili Dönem Toplam Net Ciro</h3>
@@ -375,27 +376,29 @@ else:
                 </div>
             """, unsafe_allow_html=True)
             
-            # --- PROFESYONEL MAĞAZA DÖNEMSEL GRAFİĞİ ---
+            # --- DÜZELTİLMİŞ MAĞAZA GÜNLÜK CİRO GRAFİĞİ ---
             if not f_df.empty:
                 st.markdown("#### 📊 Mağaza Günlük Ciro Dağılımı")
-                df_magaza_grafik = f_df.groupby('tarih').agg({'tutar': 'sum'}).reset_index().sort_values('tarih')
-                df_magaza_grafik['Tarih'] = pd.to_datetime(df_magaza_grafik['tarih']).dt.strftime('%d.%m')
+                df_magaza_grafik = f_df.groupby('tarih').agg({'tutar': 'sum'}).reset_index()
+                df_magaza_grafik['tarih_dt'] = pd.to_datetime(df_magaza_grafik['tarih'])
+                df_magaza_grafik = df_magaza_grafik.sort_values('tarih_dt')
+                df_magaza_grafik['Tarih_Gosterim'] = df_magaza_grafik['tarih_dt'].dt.strftime('%d.%m')
                 
                 fig_store = go.Figure()
                 fig_store.add_trace(go.Scatter(
-                    x=df_magaza_grafik['Tarih'], y=df_magaza_grafik['tutar'],
+                    x=df_magaza_grafik['Tarih_Gosterim'], y=df_magaza_grafik['tutar'],
                     mode='lines+markers',
                     line=dict(color='#3B82F6', width=3),
                     marker=dict(size=8, color='#38BDF8'),
                     fill='tozeroy',
                     fillcolor='rgba(59, 130, 246, 0.15)',
-                    name='Mağaza Toplam',
-                    hovertemplate='<b>Tarih:</b> %{x}<br><b>Toplam Net:</b> %{y:,} TL<extra></extra>'
+                    name='Mağaza',
+                    hovertemplate='<b>Tarih:</b> %{x}<br><b>Toplam:</b> %{y:,} TL<extra></extra>'
                 ))
                 fig_store.update_layout(
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
-                    xaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
+                    xaxis=dict(type='category', showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
                     yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
                 )
                 st.plotly_chart(fig_store, use_container_width=True, config={'displayModeBar': False})
@@ -455,7 +458,6 @@ else:
                 st.markdown("#### 📊 Personel Başarı Sıralaması")
                 liderlik = df.groupby('satici')['tutar'].sum().reset_index().sort_values(by='tutar', ascending=False).reset_index(drop=True)
                 
-                # --- PROFESYONEL LİDERLİK BAR GRAFİĞİ ---
                 fig_bar = px.bar(
                     liderlik, x='tutar', y='satici',
                     orientation='h', text_auto=',.0f',
