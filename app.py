@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import sqlite3
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta
 import plotly.express as px
 import io
 
@@ -45,7 +45,7 @@ st.markdown("<h1 style='text-align: center; color: #1E3A8A;'>📱 Web Tabanlı G
 
 tab1, tab2 = st.tabs(["📝 Yeni Satış Girişi", "🔒 Yönetici Paneli (Admin)"])
 
-# --- SEKME 1: VERİ GİRİŞİ ---
+# --- SEKME 1: VERİ GİRİŞİ VE BİREYSEL SORGULAMA ---
 with tab1:
     st.subheader("Günlük Satış Verisi Girişi")
     with st.form("satis_form", clear_on_submit=True):
@@ -64,8 +64,37 @@ with tab1:
                 conn.commit()
                 conn.close()
                 st.success(f"Başarılı: {satici} - {dept} departmanı için {tutar:,.2f} ₺ satış kaydedildi.")
+                st.rerun()
             else:
                 st.error("Lütfen tutarın 0'dan büyük olduğundan emin olun.")
+                
+    st.markdown("---")
+    
+    # --- YENİ ÖZELLİK: PERSONELİN KENDİ SATIŞLARINI GÖRMESİ ---
+    st.subheader("👤 Bireysel Satış Geçmişi Kontrolü")
+    st.info("Kendi girdiğiniz satışları ve toplam cironuzu görmek için adınızı seçin:")
+    
+    sorgulayan_personel = st.selectbox("Adınız Soyadınız:", ["Seçiniz..."] + PERSONEL_LISTESI, key="personel_sorgu")
+    
+    if sorgulayan_personel != "Seçiniz...":
+        conn = get_db_connection()
+        p_df = pd.read_sql_query("SELECT id, tarih, departman, tutar FROM satislar WHERE satici = ?", conn, params=(sorgulayan_personel,))
+        conn.close()
+        
+        if not p_df.empty:
+            p_df['tarih'] = pd.to_datetime(p_df['tarih']).dt.strftime('%d.%m.%Y')
+            p_toplam = p_df['tutar'].sum()
+            p_adet = len(p_df)
+            
+            col_p1, col_p2 = st.columns(2)
+            col_p1.metric(label="💰 Toplam Cironuz", value=f"{p_toplam:,.2f} ₺")
+            col_p2.metric(label="📦 Toplam Giriş Adediniz", value=f"{p_adet} Adet")
+            
+            # Personel satış detay listesi
+            p_df.columns = ['Kayıt ID', 'Satış Tarihi', 'Departman', 'Tutar (₺)']
+            st.dataframe(p_df.sort_values(by='Kayıt ID', ascending=False), use_container_width=True)
+        else:
+            st.warning("Sistemde henüz size ait bir satış kaydı bulunamadı.")
 
 # --- SEKME 2: YÖNETİCİ PANELİ ---
 with tab2:
@@ -95,8 +124,8 @@ with tab2:
             st.rerun()
 
         if not df.empty:
-            # Tarih dönüşümü nesne karmaşasını önlemek için güvenli formata çekildi
-            df['tarih_dt'] = pd.to_datetime(df['tarih']).dt.date
+            # Güvenli string bazlı tarih eşleme mimarisi (Hataları önleyen yer)
+            df['tarih_formatli'] = pd.to_datetime(df['tarih'])
             
             admin_modu = st.radio("İnceleme Türü Seçin:", [
                 "📅 Tarih Aralıklı Genel Rapor", 
@@ -109,8 +138,8 @@ with tab2:
             # --- MOD 1: TARİH ARALIKLI GENEL RAPOR ---
             if admin_modu == "📅 Tarih Aralıklı Genel Rapor":
                 st.markdown("### 📅 Tarih Aralığı Filtresi (Genel Şirket)")
-                min_date = df['tarih_dt'].min()
-                max_date = df['tarih_dt'].max()
+                min_date = df['tarih_formatli'].min().date()
+                max_date = df['tarih_formatli'].max().date()
                 
                 varsayilan_baslangic = max_date - timedelta(days=7)
                 if varsayilan_baslangic < min_date:
@@ -124,7 +153,8 @@ with tab2:
                     baslangic_tarihi = tarih_secimi if not isinstance(tarih_secimi, (tuple, list)) else tarih_secimi[0]
                     bitis_tarihi = baslangic_tarihi
                 
-                f_df = df[(df['tarih_dt'] >= baslangic_tarihi) & (df['tarih_dt'] <= bitis_tarihi)].copy()
+                # Kesin filtresel dönüşüm çözümü
+                f_df = df[(df['tarih_formatli'].dt.date >= baslangic_tarihi) & (df['tarih_formatli'].dt.date <= bitis_tarihi)].copy()
                 
                 if not f_df.empty:
                     toplam_ciro = f_df['tutar'].sum()
@@ -161,11 +191,11 @@ with tab2:
             # --- MOD 2: PERSONEL BAZLI ÖZEL İNCELEME ---
             elif admin_modu == "👤 Personel Bazlı Özel İnceleme":
                 st.markdown("### 👤 Personel Bazlı Tarih Aralıklı Gözlem")
-                secilen_personel = st.selectbox("Kullanıcı Seçin:", PERSONEL_LISTESI)
+                secilen_personel = st.selectbox("Kullanıcı Seçin:", PERSONEL_LISTESI, key="admin_personel_sec")
                 ham_personel_df = df[df['satici'] == secilen_personel].copy()
                 
                 if not ham_personel_df.empty:
-                    p_min, p_max = ham_personel_df['tarih_dt'].min(), ham_personel_df['tarih_dt'].max()
+                    p_min, p_max = ham_personel_df['tarih_formatli'].min().date(), ham_personel_df['tarih_formatli'].max().date()
                     p_tarih = st.date_input(f"{secilen_personel} İçin Tarih Aralığı:", value=(p_min, p_max), min_value=p_min, max_value=p_max, key="p_t")
                     
                     if isinstance(p_tarih, tuple) and len(p_tarih) == 2:
@@ -174,7 +204,7 @@ with tab2:
                         p_b = p_tarih if not isinstance(p_tarih, (tuple, list)) else p_tarih[0]
                         p_bit = p_b
                         
-                    personel_df = ham_personel_df[(ham_personel_df['tarih_dt'] >= p_b) & (ham_personel_df['tarih_dt'] <= p_bit)].copy()
+                    personel_df = ham_personel_df[(ham_personel_df['tarih_formatli'].dt.date >= p_b) & (ham_personel_df['tarih_formatli'].dt.date <= p_bit)].copy()
                         
                     if not personel_df.empty:
                         kol1, kol2 = st.columns(2)
@@ -193,10 +223,10 @@ with tab2:
                 else:
                     st.info("Bu personele ait henüz kayıt yok.")
 
-            # --- MOD 3: LİDERLİK TABLOSU (ŞAMPİYONLAR) ---
+            # --- MOD 3: LİDERLİK TABLOSU ---
             elif admin_modu == "🏆 Liderlik Tablosu (Şampiyonlar)":
                 st.markdown("### 🏆 En Çok Satış Yapanlar Sıralaması")
-                l_min, l_max = df['tarih_dt'].min(), df['tarih_dt'].max()
+                l_min, l_max = df['tarih_formatli'].min().date(), df['tarih_formatli'].max().date()
                 l_tarih = st.date_input("Tarih Aralığı Seçin:", value=(l_min, l_max), key="l_t")
                 
                 if isinstance(l_tarih, tuple) and len(l_tarih) == 2:
@@ -205,7 +235,7 @@ with tab2:
                     l_b = l_tarih if not isinstance(l_tarih, (tuple, list)) else l_tarih[0]
                     l_bit = l_b
                     
-                l_df = df[(df['tarih_dt'] >= l_b) & (df['tarih_dt'] <= l_bit)].copy()
+                l_df = df[(df['tarih_formatli'].dt.date >= l_b) & (df['tarih_formatli'].dt.date <= l_bit)].copy()
                 
                 if not l_df.empty:
                     liderlik = l_df.groupby('satici')['tutar'].sum().reset_index()
@@ -250,11 +280,11 @@ with tab2:
                             conn.commit()
                             conn.close()
                             st.success(f"ID: {silinecek_id} numaralı kayıt başarıyla silindi!")
-                            st.rerun() # Sayfayı anında yenileyip silinen datayı tablodan kaldırır.
+                            st.rerun()
                         else:
                             st.error("Girdiğiniz ID numarasına ait bir satış kaydı bulunamadı!")
         else:
-            st.info("Sistemde henüz kayıtlı veri bulunmuyor. İlk satışı yan sekmeden ekleyebilirsiniz.")
+            st.info("Sistemde henüz kayıtlı veri bulunmuyor.")
             
     elif admin_sifre != "":
         st.error("Hatalı Şifre! İstatistikleri görme yetkiniz yoktur.")
