@@ -148,6 +148,9 @@ if 'aktif_satici_kodu' not in st.session_state: st.session_state.aktif_satici_ko
 if 'duzenleme_id' not in st.session_state: st.session_state.duzenleme_id = None
 if 'silme_id' not in st.session_state: st.session_state.silme_id = None
 
+# Hızlı Buton Değer Yönetimi
+if 'form_tutar_degeri' not in st.session_state: st.session_state.form_tutar_degeri = 0
+
 # --- ÜST BAŞLIK ALANI ---
 hdr_col1, hdr_col2 = st.columns([2, 1])
 with hdr_col1:
@@ -221,41 +224,56 @@ if not st.session_state.admin_modu_aktif:
         """, unsafe_allow_html=True)
         st.progress(user_yuzde)
 
-        # SATIŞ FORMU
-        with st.form("satis_form", clear_on_submit=True):
-            tarih = st.date_input("Satış Tarihi", datetime.now().date())
-            dept = st.selectbox("Departman", DEPARTMAN_LISTESI)
-            tutar_input = st.text_input("Tutar Girişi (TL) [İptaller için başına eksi (-) koyun]", value="", placeholder="Örn: 233455")
-            
-            temiz_tutar = 0
-            is_negative = False
-            
-            if tutar_input:
-                ham_input = tutar_input.strip()
-                if ham_input.startswith("-"):
-                    is_negative = True
-                    ham_input = ham_input[1:]
-                temiz_karakterler = ham_input.replace(".", "").replace(",", "").replace(" ", "")
-                
-                if temiz_karakterler.isdigit():
-                    temiz_tutar = int(temiz_karakterler)
-                    if is_negative: temiz_tutar = -temiz_tutar
-                    renk = "#EF4444" if is_negative else "#10B981"
-                    etiket = "İptal/İade" if is_negative else "Satış"
-                    st.markdown(f"<h3 style='color: {renk}; margin: 5px 0;'>💰 Teyit ({etiket}): {temiz_tutar:,} TL</h3>", unsafe_allow_html=True)
-                else:
-                    st.error("⚠️ Lütfen sadece geçerli sayısal rakamlar giriniz!")
+        # --- MOBİL UYUMLU GÜVENLİ SATIŞ FORMU ---
+        st.markdown("### 💰 Yeni Satış Ekle")
+        
+        tarih = st.date_input("Satış Tarihi", datetime.now().date())
+        dept = st.selectbox("Departman", DEPARTMAN_LISTESI)
+        
+        # ÇÖZÜM 3: Hızlı Rakam Ekleme Butonları (Klavye kullanmadan hızlı giriş)
+        st.markdown("<p style='font-size:12px; color:#94A3B8; margin-bottom:5px;'>⚡ Hızlı Miktar Butonları</p>", unsafe_allow_html=True)
+        btn_c1, btn_c2, btn_c3, btn_c4, btn_c5, btn_c6 = st.columns(6)
+        with btn_c1:
+            if st.button("+1K", key="btn_1k", use_container_width=True): st.session_state.form_tutar_degeri += 1000
+        with btn_c2:
+            if st.button("+5K", key="btn_5k", use_container_width=True): st.session_state.form_tutar_degeri += 5000
+        with btn_c3:
+            if st.button("+10K", key="btn_10k", use_container_width=True): st.session_state.form_tutar_degeri += 10000
+        with btn_c4:
+            if st.button("+50K", key="btn_50k", use_container_width=True): st.session_state.form_tutar_degeri += 50000
+        with btn_c5:
+            if st.button("± Ters", key="btn_neg", use_container_width=True): st.session_state.form_tutar_degeri = -st.session_state.form_tutar_degeri
+        with btn_c6:
+            if st.button("❌", key="btn_clr", use_container_width=True): st.session_state.form_tutar_degeri = 0
 
-            if st.form_submit_button("KAYDET"):
-                if temiz_tutar != 0:
-                    conn = get_db_connection()
-                    c = conn.cursor()
-                    c.execute("INSERT INTO satislar (tarih, satici, departman, tutar) VALUES (?,?,?,?)",
-                              (tarih.strftime('%Y-%m-%d'), st.session_state.aktif_satici_adi, dept, temiz_tutar))
-                    conn.commit()
-                    conn.close()
-                    st.success("Başarıyla Kaydedildi!")
-                    st.rerun()
+        # Sayısal güvenli alan (Hata ihtimalini sıfıra indirir)
+        temiz_tutar = st.number_input(
+            "Net Tutar Girişi (TL) [İptaller için başına eksi (-) koyun veya Ters butonunu kullanın]",
+            value=st.session_state.form_tutar_degeri,
+            step=1,
+            format="%d"
+        )
+        # Giriş el ile değiştiyse durumu senkronize et
+        st.session_state.form_tutar_degeri = temiz_tutar
+
+        if temiz_tutar != 0:
+            renk = "#EF4444" if temiz_tutar < 0 else "#10B981"
+            etiket = "İptal/İade" if temiz_tutar < 0 else "Satış"
+            st.markdown(f"<h3 style='color: {renk}; margin: 5px 0;'>💰 Teyit ({etiket}): {temiz_tutar:,} TL</h3>", unsafe_allow_html=True)
+
+        if st.button("🚀 SATIŞI KAYDET", type="primary", use_container_width=True):
+            if temiz_tutar != 0:
+                conn = get_db_connection()
+                c = conn.cursor()
+                c.execute("INSERT INTO satislar (tarih, satici, departman, tutar) VALUES (?,?,?,?)",
+                          (tarih.strftime('%Y-%m-%d'), st.session_state.aktif_satici_adi, dept, temiz_tutar))
+                conn.commit()
+                conn.close()
+                st.session_state.form_tutar_degeri = 0 # Kayıttan sonra sıfırla
+                st.success("Başarıyla Kaydedildi!")
+                st.rerun()
+            else:
+                st.error("Lütfen 0'dan farklı geçerli bir tutar giriniz!")
 
         # Personel Şifre Değiştirme
         st.markdown("---")
@@ -431,7 +449,7 @@ else:
                 )
                 st.plotly_chart(fig_store, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
 
-            # --- DÖNEM İÇİ TÜM PERSONEL SATIŞLARI (SAĞ KÖŞE BUTONLU SÜTUN DÜZENİ) ---
+            # --- DÖNEM İÇİ TÜM PERSONEL SATIŞLARI (KUSURSUZ SAĞ KÖŞE BUTONLU SÜTUN DÜZENİ) ---
             st.markdown("### 📋 Dönem İçi Tüm Personel Satışları")
             if not f_df.empty:
                 f_df_sorted = f_df.sort_values(by='id', ascending=False)
@@ -439,7 +457,6 @@ else:
                     is_iade = "iade" if row['tutar'] < 0 else ""
                     t_str = datetime.strptime(row['tarih'], '%Y-%m-%d').strftime('%d.%m.%Y')
                     
-                    # Bilgiler sola kaydırıldı ([5, 1, 1] Oranıyla butonlar en sağ köşeye sıkıştırıldı)
                     col_info, col_btn1, col_btn2 = st.columns([5, 1, 1])
                     
                     with col_info:
@@ -464,33 +481,28 @@ else:
                             st.session_state.duzenleme_id = None
                             st.rerun()
 
-                    # --- DÜZENLE DENİLDİĞİNDE HEMEN ALTA DİNAMİK SEKME (FORM) AÇILIR ---
+                    # --- DÜZENLE DENİLDİĞİNDE HEMEN ALTA AÇILAN SEKME (FORM) ---
                     if st.session_state.duzenleme_id == row['id']:
                         with st.form(f"hizli_duzenleme_form_{row['id']}"):
                             st.markdown(f"**⚙️ Satış Kaydını Düzenle (ID: {row['id']})**")
                             
-                            # Sadece Personel ve Satış Rakamı değiştirilebilir
                             p_isimler = list(PERSONEL_KODLARI.values())
                             yeni_satici = st.selectbox("Personel Seçin", p_isimler, index=p_isimler.index(row['satici']))
-                            yeni_tutar_input = st.text_input("Satış Rakamı (TL)", value=str(row['tutar']))
+                            
+                            # Düzenlemede de harf hatasını önlemek için st.number_input uygulandı
+                            yeni_tutar = st.number_input("Satış Rakamı (TL)", value=int(row['tutar']), step=1, format="%d")
                             
                             c1, c2 = st.columns(2)
                             with c1:
                                 if st.form_submit_button("💾 Güncelle"):
-                                    clean_val = yeni_tutar_input.strip().replace(".", "").replace(",", "").replace(" ", "")
-                                    is_neg = yeni_tutar_input.strip().startswith("-")
-                                    if is_neg: clean_val = clean_val.replace("-", "")
-                                    
-                                    if clean_val.isdigit():
-                                        final_val = -int(clean_val) if is_neg else int(clean_val)
-                                        conn = get_db_connection()
-                                        conn.cursor().execute("UPDATE satislar SET satici=?, tutar=? WHERE id=?", 
-                                                  (yeni_satici, final_val, row['id']))
-                                        conn.commit()
-                                        conn.close()
-                                        st.session_state.duzenleme_id = None
-                                        st.success("Başarıyla Güncellendi!")
-                                        st.rerun()
+                                    conn = get_db_connection()
+                                    conn.cursor().execute("UPDATE satislar SET satici=?, tutar=? WHERE id=?", 
+                                              (yeni_satici, yeni_tutar, row['id']))
+                                    conn.commit()
+                                    conn.close()
+                                    st.session_state.duzenleme_id = None
+                                    st.success("Başarıyla Güncellendi!")
+                                    st.rerun()
                             with c2:
                                 if st.form_submit_button("❌ Vazgeç"):
                                     st.session_state.duzenleme_id = None
