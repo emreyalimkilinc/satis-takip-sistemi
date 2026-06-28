@@ -11,21 +11,24 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
+    # Satışlar Tablosu - Tutar INTEGER (Tam sayı) olarak işlenecek
     c.execute('''
         CREATE TABLE IF NOT EXISTS satislar (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tarih TEXT,
             satici TEXT,
             departman TEXT,
-            tutar REAL
+            tutar INTEGER
         )
     ''')
+    # Bireysel Personel Hedefleri Tablosu
     c.execute('''
         CREATE TABLE IF NOT EXISTS hedefler (
             tur TEXT PRIMARY KEY,
-            hedef_tutar REAL
+            hedef_tutar INTEGER
         )
     ''')
+    # Kullanıcılar ve Şifreler Tablosu
     c.execute('''
         CREATE TABLE IF NOT EXISTS kullanicilar (
             kod TEXT PRIMARY KEY,
@@ -34,7 +37,7 @@ def init_db():
         )
     ''')
     for kod, p_isim in PERSONEL_KODLARI.items():
-        c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES (?, 1500000.0)", (p_isim,))
+        c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES (?, 1500000)", (p_isim,))
         c.execute("INSERT OR IGNORE INTO kullanicilar (kod, isim, sifre) VALUES (?, ?, '123456')", (kod, p_isim))
     conn.commit()
     conn.close()
@@ -88,7 +91,8 @@ st.markdown("""
         background-color: #3B82F6 !important;
         color: white !important;
     }
-    /* MOBİL MODERN KART TASARIMLARI (SIFIR TAŞMA) */
+    
+    /* MOBİL MODERN KART TASARIMLARI */
     .modern-card {
         background: #1E293B;
         border-left: 5px solid #10B981;
@@ -127,7 +131,7 @@ if 'user_oturum_aktif' not in st.session_state: st.session_state.user_oturum_akt
 if 'aktif_satici_adi' not in st.session_state: st.session_state.aktif_satici_adi = None
 if 'aktif_satici_kodu' not in st.session_state: st.session_state.aktif_satici_kodu = None
 
-# --- ÜST BAŞLIK VE SAĞ BUTON ALANI ---
+# --- ÜST BAŞLIK ALANI ---
 hdr_col1, hdr_col2 = st.columns([2, 1])
 with hdr_col1:
     st.markdown(f"""
@@ -183,9 +187,9 @@ if not st.session_state.admin_modu_aktif:
         conn = get_db_connection()
         c = conn.cursor()
         c.execute("SELECT SUM(tutar) FROM satislar WHERE satici = ?", (st.session_state.aktif_satici_adi,))
-        user_toplam_ciro = c.fetchone()[0] or 0.0
+        user_toplam_ciro = c.fetchone()[0] or 0
         c.execute("SELECT hedef_tutar FROM hedefler WHERE tur = ?", (st.session_state.aktif_satici_adi,))
-        user_kota = c.fetchone()[0] or 1500000.0
+        user_kota = c.fetchone()[0] or 1500000
         conn.close()
         
         kalan_kota = user_kota - user_toplam_ciro
@@ -194,31 +198,61 @@ if not st.session_state.admin_modu_aktif:
         st.markdown(f"""
             <div style='background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 12px; margin-bottom: 5px;'>
                 <p style='margin:0; color:#94A3B8; font-size:12px; font-weight:600;'>🎯 DURUMUNUZ</p>
-                <h4 style='margin:5px 0; color:#10B981;'>{user_toplam_ciro:,.2f} ₺ / {user_kota:,.2f} ₺</h4>
+                <h4 style='margin:5px 0; color:#10B981;'>{user_toplam_ciro:,} TL / {user_kota:,} TL</h4>
                 <p style='margin:0; color:#3B82F6; font-size:12px;'>
-                    {f"Kalan Kota: <b>{kalan_kota:,.2f} ₺</b>" if kalan_kota > 0 else "🎉 Kota Tamamlandı!"}
+                    {f"Kalan Kota: <b>{kalan_kota:,} TL</b>" if kalan_kota > 0 else "🎉 Kota Tamamlandı!"}
                 </p>
             </div>
         """, unsafe_allow_html=True)
         st.progress(user_yuzde)
 
-        # Satış Formu
+        # HATA GEÇİRMEZ YENİ SATIŞ FORMU
         with st.form("satis_form", clear_on_submit=True):
             tarih = st.date_input("Satış Tarihi", datetime.now().date())
             dept = st.selectbox("Departman", DEPARTMAN_LISTESI)
-            tutar = st.number_input("Tutar (₺)", step=50.0, value=0.0)
+            
+            # Tutar girişi artık düz metin (Kullanıcı nokta/virgül koysa da temizlenecek)
+            tutar_input = st.text_input("Tutar Girişi (TL) [İptaller için başına eksi (-) koyun]", value="", placeholder="Örn: 233455")
+            
+            # Arka plan temizleme mekanizması ve canlı teyit yazısı
+            temiz_tutar = 0
+            is_negative = False
+            
+            if tutar_input:
+                ham_input = tutar_input.strip()
+                if ham_input.startswith("-"):
+                    is_negative = True
+                    ham_input = ham_input[1:]
+                
+                # Nokta, virgül ve boşlukları tamamen ayıkla
+                temiz_karakterler = ham_input.replace(".", "").replace(",", "").replace(" ", "")
+                
+                if temiz_karakterler.isdigit():
+                    temiz_tutar = int(temiz_karakterler)
+                    if is_negative:
+                        temiz_tutar = -temiz_tutar
+                    
+                    # Kullanıcıya kocaman canlı görsel teyit gösteriliyor
+                    renk = "#EF4444" if is_negative else "#10B981"
+                    etiket = "İptal/İade" if is_negative else "Satış"
+                    st.markdown(f"<h3 style='color: {renk}; margin: 5px 0;'>💰 Teyit ({etiket}): {temiz_tutar:,} TL</h3>", unsafe_allow_html=True)
+                else:
+                    st.error("⚠️ Lütfen sadece geçerli sayısal rakamlar giriniz!")
+
             if st.form_submit_button("KAYDET"):
-                if tutar != 0:
+                if temiz_tutar != 0:
                     conn = get_db_connection()
                     c = conn.cursor()
                     c.execute("INSERT INTO satislar (tarih, satici, departman, tutar) VALUES (?,?,?,?)",
-                              (tarih.strftime('%Y-%m-%d'), st.session_state.aktif_satici_adi, dept, tutar))
+                              (tarih.strftime('%Y-%m-%d'), st.session_state.aktif_satici_adi, dept, temiz_tutar))
                     conn.commit()
                     conn.close()
-                    st.success("Kaydedildi!")
+                    st.success("Başarıyla Kaydedildi!")
                     st.rerun()
+                else:
+                    st.error("Lütfen sıfırdan farklı bir tutar girin.")
 
-        # Grafik ve Geçmiş
+        # Grafik ve Geçmiş Veriler
         conn = get_db_connection()
         df_personel = pd.read_sql_query("SELECT * FROM satislar WHERE satici = ?", conn, params=(st.session_state.aktif_satici_adi,))
         conn.close()
@@ -234,7 +268,7 @@ if not st.session_state.admin_modu_aktif:
 
             st.markdown("#### 📋 Son İşlemleriniz")
             df_personel = df_personel.sort_values(by='id', ascending=False)
-            for _, row in df_personel.iteritems() if hasattr(df_personel, 'iteritems') else df_personel.iterrows():
+            for _, row in df_personel.iterrows():
                 is_iade = "iade" if row['tutar'] < 0 else ""
                 t_str = datetime.strptime(row['tarih'], '%Y-%m-%d').strftime('%d.%m.%Y')
                 st.markdown(f"""
@@ -245,12 +279,12 @@ if not st.session_state.admin_modu_aktif:
                         </div>
                         <div class="card-row" style="margin-top:5px;">
                             <span class="card-dept">İşlem</span>
-                            <span class="card-price">{row['tutar']:,.2f} ₺</span>
+                            <span class="card-price">{row['tutar']:,} TL</span>
                         </div>
                     </div>
                 """, unsafe_allow_html=True)
 
-        # Şifre Değiştirme
+        # Şifre Değiştirme Paneli
         with st.expander("🔐 Şifre Değiştir"):
             with st.form("sifre_degis_form", clear_on_submit=True):
                 p_eski = st.text_input("Mevcut Şifre:", type="password")
@@ -280,28 +314,25 @@ else:
         conn = get_db_connection()
         df = pd.read_sql_query("SELECT * FROM satislar", conn)
         c = conn.cursor()
-        kotalar = {p: (c.execute("SELECT hedef_tutar FROM hedefler WHERE tur=?", (p,)).fetchone() or [1500000.0])[0] for p in PERSONEL_KODLARI.values()}
+        kotalar = {p: (c.execute("SELECT hedef_tutar FROM hedefler WHERE tur=?", (p,)).fetchone() or [1500000])[0] for p in PERSONEL_KODLARI.values()}
         conn.close()
 
-        # Dikey Tasarım İçin Açılır Menü
         admin_modu = st.selectbox("⚙️ İşlem Menüsü Seçin:", ["📊 Genel Rapor & Kotalar", "👤 Personel Detay", "🏆 Şampiyonlar Ligi", "⚙️ Düzenle / Sil", "🔑 Şifre Yönetimi"])
         st.markdown("---")
         
         if admin_modu == "📊 Genel Rapor & Kotalar":
-            toplam_ciro = df['tutar'].sum() if not df.empty else 0.0
-            st.metric("MAĞAZA TOPLAM NET CİRO", f"{toplam_ciro:,.2f} ₺")
+            toplam_ciro = df['tutar'].sum() if not df.empty else 0
+            st.metric("MAĞAZA TOPLAM NET CİRO", f"{toplam_ciro:,} TL")
             
             st.markdown("### 🎯 Bireysel Kota Düzenleme")
-            st.info("Kotaları tablodan değiştirip aşağıdaki butona basabilirsiniz (Yatay taşma yapmaz).")
-            
-            kota_list = [{"Personel": p, "Kota (₺)": float(kotalar[p])} for p in PERSONEL_KODLARI.values()]
+            kota_list = [{"Personel": p, "Kota (TL)": int(kotalar[p])} for p in PERSONEL_KODLARI.values()]
             duzenlenmis = st.data_editor(pd.DataFrame(kota_list), use_container_width=True, disabled=["Personel"])
             
             if st.button("💾 Kotaları Kaydet", type="primary"):
                 conn = get_db_connection()
                 c = conn.cursor()
                 for _, row in duzenlenmis.iterrows():
-                    c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur = ?", (row["Kota (₺)"], row["Personel"]))
+                    c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur = ?", (int(row["Kota (TL)"]), row["Personel"]))
                 conn.commit()
                 conn.close()
                 st.success("Güncellendi!")
@@ -310,13 +341,13 @@ else:
         elif admin_modu == "👤 Personel Detay":
             secilen = st.selectbox("Personel:", list(PERSONEL_KODLARI.values()))
             p_df = df[df['satici'] == secilen].sort_values('id', ascending=False)
-            st.metric("TOPLAM SATIŞI", f"{p_df['tutar'].sum():,.2f} ₺")
+            st.metric("TOPLAM SATIŞI", f"{p_df['tutar'].sum(),} TL")
             for _, row in p_df.iterrows():
                 is_iade = "iade" if row['tutar'] < 0 else ""
                 st.markdown(f"""
                     <div class="modern-card {is_iade}">
                         <div class="card-row"><span class="card-title">{row['departman']}</span><span class="card-date">{row['tarih']}</span></div>
-                        <div class="card-row" style="margin-top:5px;"><span class="card-dept">Tutar</span><span class="card-price">{row['tutar']:,.2f} ₺</span></div>
+                        <div class="card-row" style="margin-top:5px;"><span class="card-dept">Tutar</span><span class="card-price">{row['tutar']:,} TL</span></div>
                     </div>
                 """, unsafe_allow_html=True)
 
@@ -326,17 +357,53 @@ else:
                 for idx, row in liderlik.iterrows():
                     st.markdown(f"""
                         <div class="modern-card">
-                            <div class="card-row"><span class="card-title">🏆 {idx+1}. {row['satici']}</span><span class="card-price">{row['tutar']:,.2f} ₺</span></div>
+                            <div class="card-row"><span class="card-title">🏆 {idx+1}. {row['satici']}</span><span class="card-price">{row['tutar']:,} TL</span></div>
                         </div>
                     """, unsafe_allow_html=True)
 
         elif admin_modu == "⚙️ Düzenle / Sil":
             if not df.empty:
                 islem_df = df.sort_values(by='id', ascending=False)
-                secenekler = {row['id']: f"ID: {row['id']} - {row['satici']} - {row['tutar']} ₺" for _, row in islem_df.iterrows()}
-                secilen_id = st.selectbox("Düzenlenecek İşlem Seçin:", list(secenekler.keys()), format_func=lambda x: secenekler[x])
+                secenekler = {row['id']: f"ID: {row['id']} - {row['satici']} - {row['tutar']:,} TL" for _, row in islem_df.iterrows()}
+                secilen_id = st.selectbox("Düzenlenecek / Silinecek İşlem Seçin:", list(secenekler.keys()), format_func=lambda x: secenekler[x])
                 
-                if st.button("🚨 SEÇİLİ İŞLEMİ SİL"):
+                # Seçilen Satırın Detaylarını Çekme Formu
+                secilen_satir = islem_df[islem_df['id'] == secilen_id].iloc[0]
+                
+                st.markdown("#### ✏️ Seçili İşlemi Güncelle")
+                with st.form("admin_canli_duzenleme_form"):
+                    yeni_tarih = st.date_input("Tarih", datetime.strptime(secilen_satir['tarih'], '%Y-%m-%d').date())
+                    yeni_dept = st.selectbox("Departman", DEPARTMAN_LISTESI, index=DEPARTMAN_LISTESI.index(secilen_satir['departman']))
+                    
+                    # Düzenleme Tutar Alanı da Hata Geçirmez Yapıldı
+                    admin_tutar_input = st.text_input("Yeni Tutar (TL)", value=str(secilen_satir['tutar']))
+                    
+                    admin_temiz_tutar = 0
+                    admin_neg = False
+                    if admin_tutar_input:
+                        a_input = admin_tutar_input.strip()
+                        if a_input.startswith("-"):
+                            admin_neg = True
+                            a_input = a_input[1:]
+                        a_temiz = a_input.replace(".", "").replace(",", "").replace(" ", "")
+                        if a_temiz.isdigit():
+                            admin_temiz_tutar = int(a_temiz)
+                            if admin_neg: admin_temiz_tutar = -admin_temiz_tutar
+                            st.markdown(f"<p style='color:#3B82F6;'>Güncellenecek Net Tutar: {admin_temiz_tutar:,} TL</p>", unsafe_allow_html=True)
+
+                    if st.form_submit_button("🔁 DEĞİŞİKLİKLERİ KAYDET"):
+                        if admin_temiz_tutar != 0:
+                            conn = get_db_connection()
+                            c = conn.cursor()
+                            c.execute("UPDATE satislar SET tarih=?, departman=?, tutar=? WHERE id=?", 
+                                      (yeni_tarih.strftime('%Y-%m-%d'), yeni_dept, admin_temiz_tutar, secilen_id))
+                            conn.commit()
+                            conn.close()
+                            st.success("Başarıyla güncellendi!")
+                            st.rerun()
+
+                st.markdown("---")
+                if st.button("🚨 SEÇİLİ İŞLEMİ TAMAMEN SİL"):
                     conn = get_db_connection()
                     conn.cursor().execute("DELETE FROM satislar WHERE id = ?", (secilen_id,))
                     conn.commit()
