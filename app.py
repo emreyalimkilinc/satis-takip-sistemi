@@ -3,6 +3,7 @@ import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
 import plotly.express as px
+import plotly.graph_objects as go
 
 # 1. VERİTABANI BAĞLANTISI VE YAPILANDIRMASI
 def get_db_connection():
@@ -33,7 +34,6 @@ def init_db():
             sifre TEXT
         )
     ''')
-    # Admin Şifre Yönetimi Tablosu
     c.execute('''
         CREATE TABLE IF NOT EXISTS admin_hesap (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,7 +98,20 @@ st.markdown("""
         color: white !important;
     }
     
-    /* MOBİL MODERN KART TASARIMLARI */
+    /* PREMIUM PREMIUM KARTLAR */
+    .dashboard-card {
+        background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+        border: 1px solid #334155;
+        box-shadow: 0 4px 20px 0 rgba(0,0,0,0.2);
+        border-radius: 16px;
+        padding: 20px;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    .dashboard-card h3 { margin: 0; font-size: 14px; color: #94A3B8; text-transform: uppercase; letter-spacing: 1px; }
+    .dashboard-card h2 { margin: 10px 0 5px 0; font-size: 28px; font-weight: 800; color: #10B981; }
+    .dashboard-card p { margin: 0; font-size: 13px; color: #3B82F6; }
+
     .modern-card {
         background: #1E293B;
         border-left: 5px solid #10B981;
@@ -109,15 +122,8 @@ st.markdown("""
         padding: 12px;
         margin-bottom: 10px;
     }
-    .modern-card.iade {
-        border-left: 5px solid #EF4444;
-    }
-    .card-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 4px;
-    }
+    .modern-card.iade { border-left: 5px solid #EF4444; }
+    .card-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
     .card-title { font-size: 14px; font-weight: bold; color: #F8FAFC; }
     .card-date { font-size: 12px; color: #94A3B8; }
     .card-dept { font-size: 13px; color: #cbd5e1; }
@@ -201,13 +207,12 @@ if not st.session_state.admin_modu_aktif:
         kalan_kota = user_kota - user_toplam_ciro
         user_yuzde = min(max(user_toplam_ciro / user_kota, 0.0), 1.0)
         
+        # Premium Tasarımlı Personel Kota Kartı
         st.markdown(f"""
-            <div style='background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 12px; margin-bottom: 5px;'>
-                <p style='margin:0; color:#94A3B8; font-size:12px; font-weight:600;'>🎯 DURUMUNUZ</p>
-                <h4 style='margin:5px 0; color:#10B981;'>{user_toplam_ciro:,} TL / {user_kota:,} TL</h4>
-                <p style='margin:0; color:#3B82F6; font-size:12px;'>
-                    {f"Kalan Kota: <b>{kalan_kota:,} TL</b>" if kalan_kota > 0 else "🎉 Kota Tamamlandı!"}
-                </p>
+            <div class="dashboard-card">
+                <h3>🎯 Güncel Kota Durumunuz</h3>
+                <h2>{user_toplam_ciro:,} TL / {user_kota:,} TL</h2>
+                <p>{f"Kalan Kota: <b>{kalan_kota:,} TL</b>" if kalan_kota > 0 else "🎉 Tebrikler, Kota Tamamlandı!"}</p>
             </div>
         """, unsafe_allow_html=True)
         st.progress(user_yuzde)
@@ -248,7 +253,7 @@ if not st.session_state.admin_modu_aktif:
                     st.success("Başarıyla Kaydedildi!")
                     st.rerun()
 
-        # 🔧 DOĞRU YERDEKİ PERSONEL ŞİFRE DEĞİŞTİRME PANELİ
+        # Personel Şifre Değiştirme
         st.markdown("---")
         with st.expander("🔐 Şifremi Değiştir"):
             with st.form("sifre_degis_form", clear_on_submit=True):
@@ -260,12 +265,9 @@ if not st.session_state.admin_modu_aktif:
                     c = conn.cursor()
                     c.execute("SELECT sifre FROM kullanicilar WHERE kod = ?", (st.session_state.aktif_satici_kodu,))
                     mevcut_db_sifre = c.fetchone()[0]
-                    if p_eski != mevcut_db_sifre:
-                        st.error("Mevcut şifreniz hatalı.")
-                    elif p_yeni != p_yeni_onay:
-                        st.error("Yeni şifreler birbiriyle uyuşmuyor.")
-                    elif len(p_yeni) < 4:
-                        st.error("Yeni şifre en az 4 karakter olmalıdır.")
+                    if p_eski != mevcut_db_sifre: st.error("Mevcut şifreniz hatalı.")
+                    elif p_yeni != p_yeni_onay: st.error("Yeni şifreler birbiriyle uyuşmuyor.")
+                    elif len(p_yeni) < 4: st.error("Yeni şifre en az 4 karakter olmalıdır.")
                     else:
                         c.execute("UPDATE kullanicilar SET sifre = ? WHERE kod = ?", (p_yeni, st.session_state.aktif_satici_kodu))
                         conn.commit()
@@ -278,13 +280,29 @@ if not st.session_state.admin_modu_aktif:
         conn.close()
         
         if not df_personel.empty:
-            st.markdown("#### 📊 Satış Trendiniz")
+            st.markdown("#### 📊 Satış Performans Grafiği")
             df_grafik = df_personel.groupby('tarih').agg({'tutar': 'sum'}).reset_index().sort_values('tarih')
             df_grafik['Tarih'] = pd.to_datetime(df_grafik['tarih']).dt.strftime('%d.%m')
-            fig_user = px.line(df_grafik, x='Tarih', y='tutar', template="plotly_dark", markers=True)
-            fig_user.update_traces(line_color='#10B981', line_width=2)
-            fig_user.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=5, r=5, t=5, b=5))
-            st.plotly_chart(fig_user, use_container_width=True)
+            
+            # --- PROFESYONEL PERSONEL GRAFİĞİ (ALAN DOLGULU) ---
+            fig_user = go.Figure()
+            fig_user.add_trace(go.Scatter(
+                x=df_grafik['Tarih'], y=df_grafik['tutar'],
+                mode='lines+markers',
+                line=dict(color='#10B981', width=3),
+                marker=dict(size=8, color='#F59E0B', borderwidth=2),
+                fill='tozeroy',
+                fillcolor='rgba(16, 185, 129, 0.15)',
+                name='Günlük Ciro',
+                hovertemplate='<b>Tarih:</b> %{x}<br><b>Ciro:</b> %{y:,} TL<extra></extra>'
+            ))
+            fig_user.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
+                xaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
+                yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
+            )
+            st.plotly_chart(fig_user, use_container_width=True, config={'displayModeBar': False})
 
             st.markdown("#### 📋 Son İşlemleriniz")
             df_personel = df_personel.sort_values(by='id', ascending=False)
@@ -348,8 +366,40 @@ else:
                 f_df = pd.DataFrame()
 
             toplam_ciro = f_df['tutar'].sum() if not f_df.empty else 0
-            st.metric("MAĞAZA SEÇİLİ DÖNEM NET CİRO", f"{toplam_ciro:,} TL")
             
+            # Premium Mağaza Ciro Kartı
+            st.markdown(f"""
+                <div class="dashboard-card" style="background: linear-gradient(135deg, #1E3A8A 0%, #0F172A 100%); border-color: #3B82F6;">
+                    <h3 style="color: #93C5FD;">🏢 Mağaza Seçili Dönem Toplam Net Ciro</h3>
+                    <h2 style="color: #38BDF8;">{toplam_ciro:,} TL</h2>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # --- PROFESYONEL MAĞAZA DÖNEMSEL GRAFİĞİ ---
+            if not f_df.empty:
+                st.markdown("#### 📊 Mağaza Günlük Ciro Dağılımı")
+                df_magaza_grafik = f_df.groupby('tarih').agg({'tutar': 'sum'}).reset_index().sort_values('tarih')
+                df_magaza_grafik['Tarih'] = pd.to_datetime(df_magaza_grafik['tarih']).dt.strftime('%d.%m')
+                
+                fig_store = go.Figure()
+                fig_store.add_trace(go.Scatter(
+                    x=df_magaza_grafik['Tarih'], y=df_magaza_grafik['tutar'],
+                    mode='lines+markers',
+                    line=dict(color='#3B82F6', width=3),
+                    marker=dict(size=8, color='#38BDF8'),
+                    fill='tozeroy',
+                    fillcolor='rgba(59, 130, 246, 0.15)',
+                    name='Mağaza Toplam',
+                    hovertemplate='<b>Tarih:</b> %{x}<br><b>Toplam Net:</b> %{y:,} TL<extra></extra>'
+                ))
+                fig_store.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
+                    xaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
+                    yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
+                )
+                st.plotly_chart(fig_store, use_container_width=True, config={'displayModeBar': False})
+
             st.markdown("### 📋 Dönem İçi Tüm Personel Satışları")
             if not f_df.empty:
                 f_df_sorted = f_df.sort_values(by='id', ascending=False)
@@ -383,7 +433,14 @@ else:
         elif admin_modu == "👤 Personel Detay":
             secilen = st.selectbox("Personel Seçin:", list(PERSONEL_KODLARI.values()))
             p_df = df[df['satici'] == secilen].sort_values('id', ascending=False)
-            st.metric(f"{secilen} - TOPLAM SATIŞI", f"{p_df['tutar'].sum(),} TL")
+            
+            st.markdown(f"""
+                <div class="dashboard-card">
+                    <h3>👤 {secilen} Toplam Cirosu</h3>
+                    <h2>{p_df['tutar'].sum():,} TL</h2>
+                </div>
+            """, unsafe_allow_html=True)
+            
             for _, row in p_df.iterrows():
                 is_iade = "iade" if row['tutar'] < 0 else ""
                 st.markdown(f"""
@@ -395,7 +452,27 @@ else:
 
         elif admin_modu == "🏆 Şampiyonlar Ligi":
             if not df.empty:
+                st.markdown("#### 📊 Personel Başarı Sıralaması")
                 liderlik = df.groupby('satici')['tutar'].sum().reset_index().sort_values(by='tutar', ascending=False).reset_index(drop=True)
+                
+                # --- PROFESYONEL LİDERLİK BAR GRAFİĞİ ---
+                fig_bar = px.bar(
+                    liderlik, x='tutar', y='satici',
+                    orientation='h', text_auto=',.0f',
+                    template='plotly_dark',
+                    color='tutar',
+                    color_continuous_scale=['#1E293B', '#3B82F6', '#10B981']
+                )
+                fig_bar.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(l=10, r=10, t=10, b=10), coloraxis_showscale=False,
+                    xaxis=dict(showgrid=False, visible=False),
+                    yaxis=dict(autorange="reversed", tickfont=dict(color='#F1F5F9', size=12))
+                )
+                fig_bar.update_traces(textposition='outside', textfont=dict(color='#F1F5F9', weight='bold'))
+                st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
+                st.markdown("---")
+
                 for idx, row in liderlik.iterrows():
                     st.markdown(f"""
                         <div class="modern-card">
@@ -457,7 +534,6 @@ else:
             conn.close()
             st.data_editor(df_k, use_container_width=True, disabled=["Kod", "Personel", "Şifre"])
             
-            # 🛡️ YENİ: ADMİN KENDİ ŞİFRESİNİ DEĞİŞTİRME ALANI
             st.markdown("---")
             st.markdown("### 🔒 Yönetici Şifresini Değiştir")
             with st.form("admin_sifre_form", clear_on_submit=True):
@@ -469,12 +545,9 @@ else:
                     c = conn.cursor()
                     c.execute("SELECT sifre FROM admin_hesap WHERE id=1")
                     m_sif = c.fetchone()[0]
-                    if a_eski != m_sif:
-                        st.error("Mevcut admin şifresi hatalı.")
-                    elif a_yeni != a_yeni_onay:
-                        st.error("Şifreler uyuşmuyor.")
-                    elif len(a_yeni) < 4:
-                        st.error("Yeni şifre en az 4 karakter olmalıdır.")
+                    if a_eski != m_sif: st.error("Mevcut admin şifresi hatalı.")
+                    elif a_yeni != a_yeni_onay: st.error("Şifreler uyuşmuyor.")
+                    elif len(a_yeni) < 4: st.error("Yeni şifre en az 4 karakter olmalıdır.")
                     else:
                         c.execute("UPDATE admin_hesap SET sifre=? WHERE id=1", (a_yeni,))
                         conn.commit()
