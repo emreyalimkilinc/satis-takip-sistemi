@@ -120,7 +120,7 @@ st.markdown("""
         border-bottom: 1px solid #334155;
         border-radius: 8px;
         padding: 12px;
-        margin-bottom: 10px;
+        margin-bottom: 5px;
     }
     .modern-card.iade { border-left: 5px solid #EF4444; }
     .card-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
@@ -142,6 +142,10 @@ if 'admin_sifre_dogrulandi' not in st.session_state: st.session_state.admin_sifr
 if 'user_oturum_aktif' not in st.session_state: st.session_state.user_oturum_aktif = False
 if 'aktif_satici_adi' not in st.session_state: st.session_state.aktif_satici_adi = None
 if 'aktif_satici_kodu' not in st.session_state: st.session_state.aktif_satici_kodu = None
+
+# Canlı Düzenleme Durum Yönetimi
+if 'duzenleme_id' not in st.session_state: st.session_state.duzenleme_id = None
+if 'silme_id' not in st.session_state: st.session_state.silme_id = None
 
 # --- ÜST BAŞLIK ALANI ---
 hdr_col1, hdr_col2 = st.columns([2, 1])
@@ -305,7 +309,6 @@ if not st.session_state.admin_modu_aktif:
                     xaxis=dict(type='category', showgrid=False, tickfont=dict(color='#94A3B8', size=12)),
                     yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
                 )
-                # CRITICAL FIX: staticPlot=True ile dokunulsa bile asla bozulmayan sabit resim yapısı
                 st.plotly_chart(fig_user, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
             else:
                 st.info("📉 Grafiği çizmek için yeterli veri bulunamadı.")
@@ -348,7 +351,8 @@ else:
         kotalar = {p: (c.execute("SELECT hedef_tutar FROM hedefler WHERE tur=?", (p,)).fetchone() or [1500000])[0] for p in PERSONEL_KODLARI.values()}
         conn.close()
 
-        admin_modu = st.selectbox("⚙️ İşlem Menüsü Seçin:", ["📊 Genel Rapor & Kotalar", "👤 Personel Detay", "🏆 Şampiyonlar Ligi", "⚙️ Düzenle / Sil", "🔑 Şifre Yönetimi"])
+        # ESKİ HANTAL DÜZENLEME SEKMESİ KALDIRILDI!
+        admin_modu = st.selectbox("⚙️ İşlem Menüsü Seçin:", ["📊 Genel Rapor & Kotalar", "👤 Personel Detay", "🏆 Şampiyonlar Ligi", "🔑 Şifre Yönetimi"])
         st.markdown("---")
         
         if not df.empty:
@@ -360,6 +364,62 @@ else:
             max_date = datetime.now().date()
 
         if admin_modu == "📊 Genel Rapor & Kotalar":
+            
+            # --- CANLI DÜZENLEME MODALI / FORMU ---
+            if st.session_state.duzenleme_id:
+                st.markdown("### ✏️ İşlemi Güncelle")
+                conn = get_db_connection()
+                secili_islem = pd.read_sql_query("SELECT * FROM satislar WHERE id = ?", conn, params=(st.session_state.duzenleme_id,)).iloc[0]
+                conn.close()
+                
+                with st.form("canli_hizli_duzenleme_form"):
+                    u_tarih = st.date_input("Tarih", datetime.strptime(secili_islem['tarih'], '%Y-%m-%d').date())
+                    u_dept = st.selectbox("Departman", DEPARTMAN_LISTESI, index=DEPARTMAN_LISTESI.index(secili_islem['departman']))
+                    u_tutar_input = st.text_input("Tutar (TL)", value=str(secili_islem['tutar']))
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.form_submit_button("💾 DEĞİŞİKLİKLERİ KAYDET"):
+                            clean_val = u_tutar_input.strip().replace(".", "").replace(",", "").replace(" ", "")
+                            # Negatif kontrolü
+                            is_neg = u_tutar_input.strip().startswith("-")
+                            if is_neg: clean_val = clean_val.replace("-", "")
+                            
+                            if clean_val.isdigit():
+                                final_val = -int(clean_val) if is_neg else int(clean_val)
+                                conn = get_db_connection()
+                                conn.cursor().execute("UPDATE satislar SET tarih=?, departman=?, tutar=? WHERE id=?", 
+                                          (u_tarih.strftime('%Y-%m-%d'), u_dept, final_val, st.session_state.duzenleme_id))
+                                conn.commit()
+                                conn.close()
+                                st.session_state.duzenleme_id = None
+                                st.success("Başarıyla Güncellendi!")
+                                st.rerun()
+                    with c2:
+                        if st.form_submit_button("❌ İPTAL ET"):
+                            st.session_state.duzenleme_id = None
+                            st.rerun()
+                st.markdown("---")
+
+            # --- CANLI SİLME ONAYI ---
+            if st.session_state.silme_id:
+                st.warning(f"🚨 ID: {st.session_state.silme_id} numaralı satışı tamamen silmek istediğinize emin misiniz?")
+                col_s1, col_s2 = st.columns(2)
+                with col_s1:
+                    if st.button("🗑️ EVET, KESİNLİKLE SİL"):
+                        conn = get_db_connection()
+                        conn.cursor().execute("DELETE FROM satislar WHERE id = ?", (st.session_state.silme_id,))
+                        conn.commit()
+                        conn.close()
+                        st.session_state.silme_id = None
+                        st.success("İşlem Başarıyla Silindi!")
+                        st.rerun()
+                with col_s2:
+                    if st.button("❌ İPTAL"):
+                        st.session_state.silme_id = None
+                        st.rerun()
+                st.markdown("---")
+
             st.markdown("#### 📅 Rapor Dönemi Seçimi")
             tarih_secimi = st.date_input("Dönem Aralığı:", value=(min_date, max_date), min_value=min_date, max_value=max_date)
             
@@ -405,21 +465,37 @@ else:
                     xaxis=dict(type='category', showgrid=False, tickfont=dict(color='#94A3B8', size=12)),
                     yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
                 )
-                # CRITICAL FIX: Admin grafiği de dokunulmaya karşı tamamen kilitlendi
                 st.plotly_chart(fig_store, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
 
+            # --- DÖNEM İÇİ TÜM PERSONEL SATIŞLARI (BUTONLU) ---
             st.markdown("### 📋 Dönem İçi Tüm Personel Satışları")
             if not f_df.empty:
                 f_df_sorted = f_df.sort_values(by='id', ascending=False)
                 for _, row in f_df_sorted.iterrows():
                     is_iade = "iade" if row['tutar'] < 0 else ""
                     t_str = datetime.strptime(row['tarih'], '%Y-%m-%d').strftime('%d.%m.%Y')
+                    
+                    # Kart İçeriği
                     st.markdown(f"""
                         <div class="modern-card {is_iade}">
                             <div class="card-row"><span class="card-title">👤 {row['satici']}</span><span class="card-date">{t_str}</span></div>
-                            <div class="card-row" style="margin-top:5px;"><span class="card-dept">{row['departman']}</span><span class="card-price">{row['tutar']:,} TL</span></div>
+                            <div class="card-row" style="margin-top:5px;"><span class="card-dept">{row['departman']} (ID: {row['id']})</span><span class="card-price">{row['tutar']:,} TL</span></div>
                         </div>
                     """, unsafe_allow_html=True)
+                    
+                    # Kartın Hemen Altına Eşzamanlı Düzenle/Sil Buton Satırı
+                    btn_col1, btn_col2 = st.columns(2)
+                    with btn_col1:
+                        if st.button(f"✏️ Düzenle", key=f"edit_{row['id']}"):
+                            st.session_state.duzenleme_id = row['id']
+                            st.session_state.silme_id = None
+                            st.rerun()
+                    with btn_col2:
+                        if st.button(f"🗑️ Sil", key=f"delete_{row['id']}"):
+                            st.session_state.silme_id = row['id']
+                            st.session_state.duzenleme_id = None
+                            st.rerun()
+                    st.markdown("<div style='margin-bottom:15px;'></div>", unsafe_allow_html=True)
             else:
                 st.info("Seçilen tarih aralığında kaydedilmiş herhangi bir satış bulunamadı.")
 
@@ -477,7 +553,6 @@ else:
                     yaxis=dict(autorange="reversed", tickfont=dict(color='#F1F5F9', size=12))
                 )
                 fig_bar.update_traces(textposition='outside', textfont=dict(color='#F1F5F9', weight='bold'))
-                # CRITICAL FIX: Liderlik tablosu grafiği de dokunulmaya karşı tamamen kilitlendi
                 st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                 st.markdown("---")
 
@@ -487,53 +562,6 @@ else:
                             <div class="card-row"><span class="card-title">🏆 {idx+1}. {row['satici']}</span><span class="card-price">{row['tutar']:,} TL</span></div>
                         </div>
                     """, unsafe_allow_html=True)
-
-        elif admin_modu == "⚙️ Düzenle / Sil":
-            if not df.empty:
-                islem_df = df.sort_values(by='id', ascending=False)
-                secenekler = {row['id']: f"ID: {row['id']} - {row['satici']} - {row['tutar']:,} TL" for _, row in islem_df.iterrows()}
-                secilen_id = st.selectbox("Düzenlenecek / Silinecek İşlem Seçin:", list(secenekler.keys()), format_func=lambda x: secenekler[x])
-                
-                secilen_satir = islem_df[islem_df['id'] == secilen_id].iloc[0]
-                
-                st.markdown("#### ✏️ Seçili İşlemi Güncelle")
-                with st.form("admin_canli_duzenleme_form"):
-                    yeni_tarih = st.date_input("Tarih", datetime.strptime(secilen_satir['tarih'], '%Y-%m-%d').date())
-                    yeni_dept = st.selectbox("Departman", DEPARTMAN_LISTESI, index=DEPARTMAN_LISTESI.index(secilen_satir['departman']))
-                    admin_tutar_input = st.text_input("Yeni Tutar (TL)", value=str(secilen_satir['tutar']))
-                    
-                    admin_temiz_tutar = 0
-                    admin_neg = False
-                    if admin_tutar_input:
-                        a_input = admin_tutar_input.strip()
-                        if a_input.startswith("-"):
-                            admin_neg = True
-                            a_input = a_input[1:]
-                        a_temiz = a_input.replace(".", "").replace(",", "").replace(" ", "")
-                        if a_temiz.isdigit():
-                            admin_temiz_tutar = int(a_temiz)
-                            if admin_neg: admin_temiz_tutar = -admin_temiz_tutar
-                            st.markdown(f"<p style='color:#3B82F6;'>Güncellenecek Net Tutar: {admin_temiz_tutar:,} TL</p>", unsafe_allow_html=True)
-
-                    if st.form_submit_button("🔁 DEĞİŞİKLİKLERİ KAYDET"):
-                        if admin_temiz_tutar != 0:
-                            conn = get_db_connection()
-                            c = conn.cursor()
-                            c.execute("UPDATE satislar SET tarih=?, departman=?, tutar=? WHERE id=?", 
-                                      (yeni_tarih.strftime('%Y-%m-%d'), yeni_dept, admin_temiz_tutar, secilen_id))
-                            conn.commit()
-                            conn.close()
-                            st.success("Başarıyla güncellendi!")
-                            st.rerun()
-
-                st.markdown("---")
-                if st.button("🚨 SEÇİLİ İŞLEMİ TAMAMEN SİL"):
-                    conn = get_db_connection()
-                    conn.cursor().execute("DELETE FROM satislar WHERE id = ?", (secilen_id,))
-                    conn.commit()
-                    conn.close()
-                    st.success("Silindi!")
-                    st.rerun()
 
         elif admin_modu == "🔑 Şifre Yönetimi":
             st.markdown("### 👤 Personel Şifre Listesi")
