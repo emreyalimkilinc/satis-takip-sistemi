@@ -88,10 +88,10 @@ st.markdown("""
     }
     div[data-testid="stForm"] div.stButton > button {
         width: 100% !important;
-        height: 50px !important;
-        border-radius: 12px !important;
+        height: 45px !important;
+        border-radius: 10px !important;
         font-weight: 700 !important;
-        font-size: 16px !important;
+        font-size: 14px !important;
     }
     button[kind="primaryFormSubmit"] {
         background-color: #3B82F6 !important;
@@ -126,9 +126,9 @@ st.markdown("""
     .modern-card.iade { border-left: 5px solid #EF4444; }
     .card-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
     .card-title { font-size: 14px; font-weight: bold; color: #F8FAFC; }
-    .card-date { font-size: 12px; color: #94A3B8; }
-    .card-dept { font-size: 13px; color: #cbd5e1; }
-    .card-price { font-size: 15px; font-weight: 700; color: #10B981; }
+    .card-date { font-size: 11px; color: #94A3B8; }
+    .card-dept { font-size: 12px; color: #cbd5e1; }
+    .card-price { font-size: 14px; font-weight: 700; color: #10B981; }
     .modern-card.iade .card-price { color: #EF4444; }
     
     #MainMenu, footer {visibility: hidden;}
@@ -314,7 +314,7 @@ if not st.session_state.admin_modu_aktif:
             else:
                 st.info("📉 Grafiği çizmek için yeterli veri bulunamadı.")
         else:
-            st.info("✨ Henüz herhangi bir satış kaydınız bulunmamaktadır. Satış ekledikçe grafiğiniz burada anlık oluşacaktır.")
+            st.info("✨ Henüz herhangi bir satış kaydınız bulunmamaktadır.")
 
         if not df_personel.empty:
             st.markdown("#### 📋 Son İşlemleriniz")
@@ -365,41 +365,6 @@ else:
 
         if admin_modu == "📊 Genel Rapor & Kotalar":
             
-            # --- CANLI DÜZENLEME FORMU ---
-            if st.session_state.duzenleme_id:
-                st.markdown("### ✏️ İşlemi Güncelle")
-                conn = get_db_connection()
-                secili_islem = pd.read_sql_query("SELECT * FROM satislar WHERE id = ?", conn, params=(st.session_state.duzenleme_id,)).iloc[0]
-                conn.close()
-                
-                with st.form("canli_hizli_duzenleme_form"):
-                    u_tarih = st.date_input("Tarih", datetime.strptime(secili_islem['tarih'], '%Y-%m-%d').date())
-                    u_dept = st.selectbox("Departman", DEPARTMAN_LISTESI, index=DEPARTMAN_LISTESI.index(secili_islem['departman']))
-                    u_tutar_input = st.text_input("Tutar (TL)", value=str(secili_islem['tutar']))
-                    
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        if st.form_submit_button("💾 DEĞİŞİKLİKLERİ KAYDET"):
-                            clean_val = u_tutar_input.strip().replace(".", "").replace(",", "").replace(" ", "")
-                            is_neg = u_tutar_input.strip().startswith("-")
-                            if is_neg: clean_val = clean_val.replace("-", "")
-                            
-                            if clean_val.isdigit():
-                                final_val = -int(clean_val) if is_neg else int(clean_val)
-                                conn = get_db_connection()
-                                conn.cursor().execute("UPDATE satislar SET tarih=?, departman=?, tutar=? WHERE id=?", 
-                                          (u_tarih.strftime('%Y-%m-%d'), u_dept, final_val, st.session_state.duzenleme_id))
-                                conn.commit()
-                                conn.close()
-                                st.session_state.duzenleme_id = None
-                                st.success("Başarıyla Güncellendi!")
-                                st.rerun()
-                    with c2:
-                        if st.form_submit_button("❌ İPTAL ET"):
-                            st.session_state.duzenleme_id = None
-                            st.rerun()
-                st.markdown("---")
-
             # --- CANLI SİLME ONAYI ---
             if st.session_state.silme_id:
                 st.warning(f"🚨 ID: {st.session_state.silme_id} numaralı satışı tamamen silmek istediğinize emin misiniz?")
@@ -466,7 +431,7 @@ else:
                 )
                 st.plotly_chart(fig_store, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
 
-            # --- DÖNEM İÇİ TÜM PERSONEL SATIŞLARI (SAĞ SÜTUN BUTONLU DÜZEN) ---
+            # --- DÖNEM İÇİ TÜM PERSONEL SATIŞLARI (SAĞ KÖŞE BUTONLU SÜTUN DÜZENİ) ---
             st.markdown("### 📋 Dönem İçi Tüm Personel Satışları")
             if not f_df.empty:
                 f_df_sorted = f_df.sort_values(by='id', ascending=False)
@@ -474,8 +439,8 @@ else:
                     is_iade = "iade" if row['tutar'] < 0 else ""
                     t_str = datetime.strptime(row['tarih'], '%Y-%m-%d').strftime('%d.%m.%Y')
                     
-                    # 3 Sütunlu Yan Yana Düzen (Sol ve Orta: Satış Kartı Bilgileri, Sağ: İşlem Butonları)
-                    col_info, col_btn1, col_btn2 = st.columns([4, 1.2, 1.2])
+                    # Bilgiler sola kaydırıldı ([5, 1, 1] Oranıyla butonlar en sağ köşeye sıkıştırıldı)
+                    col_info, col_btn1, col_btn2 = st.columns([5, 1, 1])
                     
                     with col_info:
                         st.markdown(f"""
@@ -486,20 +451,52 @@ else:
                         """, unsafe_allow_html=True)
                     
                     with col_btn1:
-                        st.markdown("<div style='margin-top: 6px;'></div>", unsafe_allow_html=True)
+                        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
                         if st.button(f"✏️ Düzenle", key=f"edit_{row['id']}", use_container_width=True):
                             st.session_state.duzenleme_id = row['id']
                             st.session_state.silme_id = None
                             st.rerun()
                             
                     with col_btn2:
-                        st.markdown("<div style='margin-top: 6px;'></div>", unsafe_allow_html=True)
+                        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
                         if st.button(f"🗑️ Sil", key=f"delete_{row['id']}", use_container_width=True):
                             st.session_state.silme_id = row['id']
                             st.session_state.duzenleme_id = None
                             st.rerun()
+
+                    # --- DÜZENLE DENİLDİĞİNDE HEMEN ALTA DİNAMİK SEKME (FORM) AÇILIR ---
+                    if st.session_state.duzenleme_id == row['id']:
+                        with st.form(f"hizli_duzenleme_form_{row['id']}"):
+                            st.markdown(f"**⚙️ Satış Kaydını Düzenle (ID: {row['id']})**")
                             
-                    st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
+                            # Sadece Personel ve Satış Rakamı değiştirilebilir
+                            p_isimler = list(PERSONEL_KODLARI.values())
+                            yeni_satici = st.selectbox("Personel Seçin", p_isimler, index=p_isimler.index(row['satici']))
+                            yeni_tutar_input = st.text_input("Satış Rakamı (TL)", value=str(row['tutar']))
+                            
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.form_submit_button("💾 Güncelle"):
+                                    clean_val = yeni_tutar_input.strip().replace(".", "").replace(",", "").replace(" ", "")
+                                    is_neg = yeni_tutar_input.strip().startswith("-")
+                                    if is_neg: clean_val = clean_val.replace("-", "")
+                                    
+                                    if clean_val.isdigit():
+                                        final_val = -int(clean_val) if is_neg else int(clean_val)
+                                        conn = get_db_connection()
+                                        conn.cursor().execute("UPDATE satislar SET satici=?, tutar=? WHERE id=?", 
+                                                  (yeni_satici, final_val, row['id']))
+                                        conn.commit()
+                                        conn.close()
+                                        st.session_state.duzenleme_id = None
+                                        st.success("Başarıyla Güncellendi!")
+                                        st.rerun()
+                            with c2:
+                                if st.form_submit_button("❌ Vazgeç"):
+                                    st.session_state.duzenleme_id = None
+                                    st.rerun()
+                            
+                    st.markdown("<div style='margin-bottom:10px;'></div>", unsafe_allow_html=True)
             else:
                 st.info("Seçilen tarih aralığında kaydedilmiş herhangi bir satış bulunamadı.")
 
