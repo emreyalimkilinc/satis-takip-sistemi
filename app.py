@@ -285,14 +285,13 @@ if not st.session_state.admin_modu_aktif:
             df_grafik = df_grafik.sort_values('tarih_dt')
             df_grafik['Tarih_Gosterim'] = df_grafik['tarih_dt'].dt.strftime('%d.%m')
             
-            # --- YENİLENMİŞ MODERN DİKEY ÇUBUK GRAFİĞİ ---
             if not df_grafik.empty:
                 fig_user = go.Figure()
                 fig_user.add_trace(go.Bar(
                     x=df_grafik['Tarih_Gosterim'], y=df_grafik['tutar'],
                     marker=dict(
                         color=df_grafik['tutar'],
-                        colorscale=['#1E293B', '#3B82F6', '#10B981'], # Satış miktarına göre renklenen premium geçiş
+                        colorscale=['#1E293B', '#3B82F6', '#10B981'],
                         line=dict(color='#10B981', width=1)
                     ),
                     text=df_grafik['tutar'].map(lambda x: f"{x:,} TL"),
@@ -306,7 +305,8 @@ if not st.session_state.admin_modu_aktif:
                     xaxis=dict(type='category', showgrid=False, tickfont=dict(color='#94A3B8', size=12)),
                     yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
                 )
-                st.plotly_chart(fig_user, use_container_width=True, config={'displayModeBar': False})
+                # CRITICAL FIX: staticPlot=True ile dokunulsa bile asla bozulmayan sabit resim yapısı
+                st.plotly_chart(fig_user, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
             else:
                 st.info("📉 Grafiği çizmek için yeterli veri bulunamadı.")
         else:
@@ -405,7 +405,8 @@ else:
                     xaxis=dict(type='category', showgrid=False, tickfont=dict(color='#94A3B8', size=12)),
                     yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
                 )
-                st.plotly_chart(fig_store, use_container_width=True, config={'displayModeBar': False})
+                # CRITICAL FIX: Admin grafiği de dokunulmaya karşı tamamen kilitlendi
+                st.plotly_chart(fig_store, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
 
             st.markdown("### 📋 Dönem İçi Tüm Personel Satışları")
             if not f_df.empty:
@@ -476,7 +477,8 @@ else:
                     yaxis=dict(autorange="reversed", tickfont=dict(color='#F1F5F9', size=12))
                 )
                 fig_bar.update_traces(textposition='outside', textfont=dict(color='#F1F5F9', weight='bold'))
-                st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
+                # CRITICAL FIX: Liderlik tablosu grafiği de dokunulmaya karşı tamamen kilitlendi
+                st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
                 st.markdown("---")
 
                 for idx, row in liderlik.iterrows():
