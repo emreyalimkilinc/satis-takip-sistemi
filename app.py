@@ -30,7 +30,7 @@ def init_db():
         )
     ''')
     # Varsayılan Kotalar
-    c.execute("INSERT OR IGNORE INTO hedefler (tur, hotel_tutar) VALUES ('aylik_genel', 500000.0)")
+    c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('aylik_genel', 500000.0)")
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Giriş kat', 150000.0)")
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Züccaciye', 100000.0)")
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Kasa', 50000.0)")
@@ -108,12 +108,15 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# --- ŞİFRE HATIRLAMA VE OTURUM DURUMU KONTROLLERİ ---
 if 'admin_modu_aktif' not in st.session_state:
     st.session_state.admin_modu_aktif = False
 
+if 'admin_sifre_dogrulandi' not in st.session_state:
+    st.session_state.admin_sifre_dogrulandi = False
+
 # --- İPTAL SATIRLARINI KIRMIZI YAPMA FONKSİYONU ---
 def renkli_satirlar(row):
-    # Eğer Tutar 0'dan küçükse (İptal ise) satırı koyu kırmızı yap
     if row['Tutar (₺)'] < 0:
         return ['background-color: #7f1d1d; color: #fca5a5; font-weight: bold;'] * len(row)
     return [''] * len(row)
@@ -149,7 +152,6 @@ if not st.session_state.admin_modu_aktif:
         satici = st.selectbox("Satıcı Adı Soyadı", PERSONEL_LISTESI)
         dept = st.selectbox("Departman", DEPARTMAN_LISTESI)
         
-        # min_value kaldırıldı/None yapıldı, böylece iptaller için -23566 gibi eksi değerler girilebilir.
         tutar = st.number_input("Satış/İptal Tutarı (₺)", min_value=None, step=50.0, value=0.0, 
                                 help="İptal durumunda rakamın başına eksi (-) koyarak giriniz. Örn: -500")
         
@@ -170,15 +172,22 @@ if not st.session_state.admin_modu_aktif:
             else:
                 st.error("Lütfen 0 dışında geçerli bir tutar girin.")
 
-# --- GÖRÜNÜM 2: GIZLİ YÖNETİCİ PANELİ ---
+# --- GÖRÜNÜM 2: YÖNETİCİ PANELİ ---
 else:
-    st.markdown("### 🔒 Yönetici Kimlik Doğrulama")
-    admin_sifre = st.text_input("Admin Şifresini Girin:", type="password", placeholder="•••••")
-            
-    if admin_sifre == "577339":
-        st.success("Giriş Başarılı!")
-        st.markdown("---")
+    # Şifre daha önce doğrulanmadıysa şifre sorma ekranını göster
+    if not st.session_state.admin_sifre_dogrulandi:
+        st.markdown("### 🔒 Yönetici Kimlik Doğrulama")
+        admin_sifre = st.text_input("Admin Şifresini Girin:", type="password", placeholder="•••••")
         
+        if admin_sifre == "577339":
+            st.session_state.admin_sifre_dogrulandi = True
+            st.success("Giriş Başarılı!")
+            st.rerun()
+        elif admin_sifre != "":
+            st.error("Hatalı Şifre!")
+            
+    # Şifre zaten doğrulanmışsa doğrudan paneli getir (Sürekli şifre sormaz)
+    if st.session_state.admin_sifre_dogrulandi:
         conn = get_db_connection()
         df = pd.read_sql_query("SELECT * FROM satislar", conn)
         c = conn.cursor()
@@ -232,7 +241,6 @@ else:
                     """, unsafe_allow_html=True)
                     st.progress(yuzde)
                     
-                    # Kota Düzenleme Bölümü
                     st.markdown("### 📝 Mağaza & Bölüm Kota Durumu")
                     kota_duzenleme_listesi = []
                     genel_kalan = mevcut_hedef - toplam_ciro
@@ -288,7 +296,6 @@ else:
                     fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=20, b=10))
                     st.plotly_chart(fig, use_container_width=True)
                     
-                    # Kayıtların Alt Tablosu (SIRA NUMARALI VE İPTALLER KIRMIZI RENKLİ)
                     goster_df = f_df.sort_values(by='id', ascending=False).reset_index(drop=True)
                     goster_df.index = goster_df.index + 1
                     goster_df = goster_df.reset_index().rename(columns={'index': 'No'})
@@ -299,12 +306,11 @@ else:
                     )
                     
                     st.markdown("#### 📦 Dönem İçi Satış Kayıtları (Eksi Değerli İptaller Kırmızı Renklidir)")
-                    # Satırları dinamik renklendirerek gösteriyoruz
                     st.dataframe(final_table_df.style.apply(renkli_satirlar, axis=1), use_container_width=True)
                 else:
                     st.warning("Veri bulunamadı.")
             
-            # --- MOD 2: PERSONEL BAZLI İNCELEME (RENKLENDİRİLMİŞ) ---
+            # --- MOD 2: PERSONEL BAZLI İNCELEME ---
             elif admin_modu == "👤 Personel":
                 secilen_personel = st.selectbox("Personel Seçin:", ["Seçiniz..."] + PERSONEL_LISTESI)
                 if secilen_personel != "Seçiniz...":
@@ -340,7 +346,7 @@ else:
                     liderlik.index = liderlik.index + 1
                     st.dataframe(liderlik.reset_index().rename(columns={'index':'Sıra','satici':'Personel Adı','tutar':'Net Ciro (₺)'}), use_container_width=True)
 
-            # --- MOD 4: GÜNCELLEME VE SİLME (RENKLENDİRİLMİŞ) ---
+            # --- MOD 4: GÜNCELLEME VE SİLME ---
             elif admin_modu == "⚙️ Düzenle/Sil":
                 st.markdown("### ⚙️ Kolay Sıra No (No) ile Satır Güncelleme ve Silme")
                 
@@ -411,5 +417,3 @@ else:
                     st.info("Kayıt bulunamadı.")
         else:
             st.info("Henüz veri yok.")
-    elif admin_sifre != "":
-        st.error("Hatalı Şifre!")
