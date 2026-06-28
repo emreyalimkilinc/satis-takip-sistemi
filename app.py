@@ -45,7 +45,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# SABİT PERSONEL LİSTESİ (İlk kurulum ve eşleşmeler için)
+# SABİT PERSONEL LİSTESİ
 PERSONEL_KODLARI = {
     "2646": "Emre YALIMKILINÇ",
     "1303": "Derya DEMİR",
@@ -117,7 +117,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Veritabanını başlat
 init_db()
 
 # --- OTURUM DURUMU KONTROLLERİ ---
@@ -168,7 +167,7 @@ with hdr_col2:
 
 st.markdown("---")
 
-# --- GÖRÜNÜM 1: KULLANICI MODU ---
+# --- GÖRÜNÜM 1: KULLANICI MODU (GRAFİKLİ) ---
 if not st.session_state.admin_modu_aktif:
     
     if not st.session_state.user_oturum_aktif:
@@ -181,7 +180,6 @@ if not st.session_state.admin_modu_aktif:
             if giris_butonu:
                 conn = get_db_connection()
                 c = conn.cursor()
-                # Şifreyi DB'den dinamik sorguluyoruz
                 c.execute("SELECT isim, sifre FROM kullanicilar WHERE kod = ?", (girilen_kod,))
                 user_data = c.fetchone()
                 conn.close()
@@ -248,13 +246,42 @@ if not st.session_state.admin_modu_aktif:
                 else:
                     st.error("Lütfen 0 dışında geçerli bir tutar girin.")
 
-        # Alt Geçmiş Tablosu
-        st.markdown("---")
-        st.markdown("#### 📋 Son İşlemleriniz")
+        # --- KULLANICIYA ÖZEL GÖRSEL GRAFİK ALANI ---
         conn = get_db_connection()
         df_personel = pd.read_sql_query("SELECT * FROM satislar WHERE satici = ?", conn, params=(st.session_state.aktif_satici_adi,))
         conn.close()
         
+        if not df_personel.empty:
+            st.markdown("---")
+            st.markdown("#### 📊 Günlük Satış Trendiniz")
+            
+            # Tarih bazında verileri gruplayıp grafik için hazırlıyoruz
+            df_personel['tarih_dt'] = pd.to_datetime(df_personel['tarih'])
+            df_grafik = df_personel.groupby('tarih').agg({'tutar': 'sum'}).reset_index().sort_values('tarih')
+            df_grafik['Tarih'] = pd.to_datetime(df_grafik['tarih']).dt.strftime('%d.%m.%Y')
+            
+            # Şık bir çizgi trend grafiği oluşturuyoruz
+            fig_user = px.line(
+                df_grafik, 
+                x='Tarih', 
+                y='tutar', 
+                labels={'tutar': 'Toplam Satış (₺)'},
+                template="plotly_dark",
+                markers=True
+            )
+            fig_user.update_traces(line_color='#10B981', line_width=3, marker=dict(size=8))
+            fig_user.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)', 
+                margin=dict(l=10, r=10, t=10, b=10),
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor='#334155')
+            )
+            st.plotly_chart(fig_user, use_container_width=True)
+
+        # Alt Geçmiş Tablosu
+        st.markdown("---")
+        st.markdown("#### 📋 Son İşlemleriniz")
         if not df_personel.empty:
             df_personel = df_personel.sort_values(by='id', ascending=False).reset_index(drop=True)
             df_personel.index = df_personel.index + 1
@@ -263,8 +290,10 @@ if not st.session_state.admin_modu_aktif:
             
             final_user_df = goster_kullanici[['No', 'tarih', 'departman', 'tutar']].rename(columns={'tarih':'Tarih','departman':'Departman','tutar':'Tutar (₺)'})
             st.dataframe(final_user_df.style.apply(renkli_satirlar, axis=1), use_container_width=True)
+        else:
+            st.info("Henüz kaydettiğiniz bir işlem bulunmuyor.")
             
-        # --- PERSONEL İÇİN ŞİFRE DEĞİŞTİRME BÖLÜMÜ ---
+        # Şifre Değiştirme Bölümü
         st.markdown("---")
         with st.expander("🔐 Şifremi Değiştir"):
             with st.form("sifre_degis_form", clear_on_submit=True):
@@ -288,7 +317,7 @@ if not st.session_state.admin_modu_aktif:
                     else:
                         c.execute("UPDATE kullanicilar SET sifre = ? WHERE kod = ?", (p_yeni, st.session_state.aktif_satici_kodu))
                         conn.commit()
-                        st.success("Şifreniz başarıyla değiştirildi! Bir sonraki girişte yeni şifrenizi kullanın.")
+                        st.success("Şifreniz başarıyla değiştirildi!")
                     conn.close()
 
 # --- GÖRÜNÜM 2: YÖNETİCİ PANELİ ---
@@ -308,7 +337,6 @@ else:
         conn = get_db_connection()
         df = pd.read_sql_query("SELECT * FROM satislar", conn)
         
-        # Kotaları Çek
         c = conn.cursor()
         kotalar = {}
         for p_isim in PERSONEL_KODLARI.values():
@@ -328,7 +356,6 @@ else:
         else:
             min_date, max_date, varsayilan_baslangic = datetime.now().date(), datetime.now().date(), datetime.now().date()
         
-        # --- MOD 1: GENEL RAPOR VE BİREYSEL KOTA DÜZENLEME ---
         if admin_modu == "📊 Genel Rapor & Kotalar":
             tarih_secimi = st.date_input("Filtre Aralığı:", value=(varsayilan_baslangic, max_date), min_value=min_date, max_value=max_date)
             if isinstance(tarih_secimi, tuple) and len(tarih_secimi) == 2: baslangic_tarihi, bitis_tarihi = tarih_secimi
@@ -393,7 +420,6 @@ else:
                 final_table_df = goster_df[['No', 'tarih', 'satici', 'departman', 'tutar']].rename(columns={'tarih':'Tarih','satici':'Satıcı','departman':'Departman','tutar':'Tutar (₺)'})
                 st.dataframe(final_table_df.style.apply(renkli_satirlar, axis=1), use_container_width=True)
 
-        # --- MOD 2: PERSONEL BAZLI İNCELEME ---
         elif admin_modu == "👤 Personel":
             secilen_personel = st.selectbox("Personel Seçin:", ["Seçiniz..."] + list(PERSONEL_KODLARI.values()))
             if secilen_personel != "Seçiniz..." and not df.empty:
@@ -415,14 +441,12 @@ else:
                         final_p_df = goster_p[['No', 'tarih', 'departman', 'tutar']].rename(columns={'tarih':'Tarih','departman':'Departman','tutar':'Tutar (₺)'})
                         st.dataframe(final_p_df.style.apply(renkli_satirlar, axis=1), use_container_width=True)
 
-        # --- MOD 3: LİDERLİK TABLOSU ---
         elif admin_modu == "🏆 Şampiyonlar":
             if not df.empty:
                 liderlik = df.groupby('satici')['tutar'].sum().reset_index().sort_values(by='tutar', ascending=False).reset_index(drop=True)
                 liderlik.index = liderlik.index + 1
                 st.dataframe(liderlik.reset_index().rename(columns={'index':'Sıra','satici':'Personel Adı','tutar':'Net Ciro (₺)'}), use_container_width=True)
 
-        # --- MOD 4: GÜNCELLEME VE SİLME ---
         elif admin_modu == "⚙️ Düzenle/Sil":
             if not df.empty:
                 islem_df = df.sort_values(by='id', ascending=False).reset_index(drop=True)
@@ -485,11 +509,8 @@ else:
                                 st.success("İşlem başarıyla silindi.")
                                 st.rerun()
 
-        # --- MOD 5: ADMIN İÇİN PERSONEL & ŞİFRE YÖNETİMİ ---
         elif admin_modu == "👤 Personel & Şifre Yönetimi":
             st.markdown("### 🔑 Tüm Personel Kodları ve Güncel Şifreleri")
-            st.info("Unutulan şifreleri buradan görebilir ya da personelin şifresini doğrudan güncelleyebilirsiniz.")
-            
             conn = get_db_connection()
             df_kullanicilar = pd.read_sql_query("SELECT kod as 'Personel Kodu', isim as 'Personel Adı Soyadı', sifre as 'Güncel Şifre' FROM kullanicilar", conn)
             conn.close()
@@ -497,7 +518,6 @@ else:
             st.dataframe(df_kullanicilar, use_container_width=True)
             
             st.markdown("---")
-            st.markdown("#### ✏️ Personel Şifresini Yönetici Olarak Değiştir/Sıfırla")
             with st.form("admin_sifre_sifirla_form"):
                 secilen_kod = st.selectbox("Şifresi Değişecek Personel:", df_kullanicilar['Personel Kodu'].tolist(), 
                                            format_func=lambda x: f"{x} - {PERSONEL_KODLARI.get(x)}")
@@ -510,5 +530,5 @@ else:
                     c.execute("UPDATE kullanicilar SET sifre = ? WHERE kod = ?", (yeni_gecici_sifre, secilen_kod))
                     conn.commit()
                     conn.close()
-                    st.success(f"{secilen_kod} kodlu personelin şifresi başarıyla '{yeni_gecici_sifre}' olarak güncellendi!")
+                    st.success("Personel şifresi başarıyla güncellendi!")
                     st.rerun()
