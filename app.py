@@ -120,7 +120,8 @@ st.markdown("""
         border-bottom: 1px solid #334155;
         border-radius: 8px;
         padding: 12px;
-        margin-bottom: 5px;
+        margin-bottom: 0px;
+        height: 100%;
     }
     .modern-card.iade { border-left: 5px solid #EF4444; }
     .card-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
@@ -351,7 +352,6 @@ else:
         kotalar = {p: (c.execute("SELECT hedef_tutar FROM hedefler WHERE tur=?", (p,)).fetchone() or [1500000])[0] for p in PERSONEL_KODLARI.values()}
         conn.close()
 
-        # ESKİ HANTAL DÜZENLEME SEKMESİ KALDIRILDI!
         admin_modu = st.selectbox("⚙️ İşlem Menüsü Seçin:", ["📊 Genel Rapor & Kotalar", "👤 Personel Detay", "🏆 Şampiyonlar Ligi", "🔑 Şifre Yönetimi"])
         st.markdown("---")
         
@@ -365,7 +365,7 @@ else:
 
         if admin_modu == "📊 Genel Rapor & Kotalar":
             
-            # --- CANLI DÜZENLEME MODALI / FORMU ---
+            # --- CANLI DÜZENLEME FORMU ---
             if st.session_state.duzenleme_id:
                 st.markdown("### ✏️ İşlemi Güncelle")
                 conn = get_db_connection()
@@ -381,7 +381,6 @@ else:
                     with c1:
                         if st.form_submit_button("💾 DEĞİŞİKLİKLERİ KAYDET"):
                             clean_val = u_tutar_input.strip().replace(".", "").replace(",", "").replace(" ", "")
-                            # Negatif kontrolü
                             is_neg = u_tutar_input.strip().startswith("-")
                             if is_neg: clean_val = clean_val.replace("-", "")
                             
@@ -467,7 +466,7 @@ else:
                 )
                 st.plotly_chart(fig_store, use_container_width=True, config={'displayModeBar': False, 'staticPlot': True})
 
-            # --- DÖNEM İÇİ TÜM PERSONEL SATIŞLARI (BUTONLU) ---
+            # --- DÖNEM İÇİ TÜM PERSONEL SATIŞLARI (SAĞ SÜTUN BUTONLU DÜZEN) ---
             st.markdown("### 📋 Dönem İçi Tüm Personel Satışları")
             if not f_df.empty:
                 f_df_sorted = f_df.sort_values(by='id', ascending=False)
@@ -475,27 +474,32 @@ else:
                     is_iade = "iade" if row['tutar'] < 0 else ""
                     t_str = datetime.strptime(row['tarih'], '%Y-%m-%d').strftime('%d.%m.%Y')
                     
-                    # Kart İçeriği
-                    st.markdown(f"""
-                        <div class="modern-card {is_iade}">
-                            <div class="card-row"><span class="card-title">👤 {row['satici']}</span><span class="card-date">{t_str}</span></div>
-                            <div class="card-row" style="margin-top:5px;"><span class="card-dept">{row['departman']} (ID: {row['id']})</span><span class="card-price">{row['tutar']:,} TL</span></div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                    # 3 Sütunlu Yan Yana Düzen (Sol ve Orta: Satış Kartı Bilgileri, Sağ: İşlem Butonları)
+                    col_info, col_btn1, col_btn2 = st.columns([4, 1.2, 1.2])
                     
-                    # Kartın Hemen Altına Eşzamanlı Düzenle/Sil Buton Satırı
-                    btn_col1, btn_col2 = st.columns(2)
-                    with btn_col1:
-                        if st.button(f"✏️ Düzenle", key=f"edit_{row['id']}"):
+                    with col_info:
+                        st.markdown(f"""
+                            <div class="modern-card {is_iade}">
+                                <div class="card-row"><span class="card-title">👤 {row['satici']}</span><span class="card-date">{t_str}</span></div>
+                                <div class="card-row" style="margin-top:5px;"><span class="card-dept">{row['departman']} (ID: {row['id']})</span><span class="card-price">{row['tutar']:,} TL</span></div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with col_btn1:
+                        st.markdown("<div style='margin-top: 6px;'></div>", unsafe_allow_html=True)
+                        if st.button(f"✏️ Düzenle", key=f"edit_{row['id']}", use_container_width=True):
                             st.session_state.duzenleme_id = row['id']
                             st.session_state.silme_id = None
                             st.rerun()
-                    with btn_col2:
-                        if st.button(f"🗑️ Sil", key=f"delete_{row['id']}"):
+                            
+                    with col_btn2:
+                        st.markdown("<div style='margin-top: 6px;'></div>", unsafe_allow_html=True)
+                        if st.button(f"🗑️ Sil", key=f"delete_{row['id']}", use_container_width=True):
                             st.session_state.silme_id = row['id']
                             st.session_state.duzenleme_id = None
                             st.rerun()
-                    st.markdown("<div style='margin-bottom:15px;'></div>", unsafe_allow_html=True)
+                            
+                    st.markdown("<div style='margin-bottom:8px;'></div>", unsafe_allow_html=True)
             else:
                 st.info("Seçilen tarih aralığında kaydedilmiş herhangi bir satış bulunamadı.")
 
