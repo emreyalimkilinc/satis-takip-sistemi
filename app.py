@@ -278,30 +278,32 @@ if not st.session_state.admin_modu_aktif:
         df_personel = pd.read_sql_query("SELECT * FROM satislar WHERE satici = ?", conn, params=(st.session_state.aktif_satici_adi,))
         conn.close()
         
-        st.markdown("#### 📊 Satış Performans Grafiği")
+        st.markdown("#### 📊 Günlük Satış Performansı")
         if not df_personel.empty:
             df_grafik = df_personel.groupby('tarih').agg({'tutar': 'sum'}).reset_index()
             df_grafik['tarih_dt'] = pd.to_datetime(df_grafik['tarih'])
             df_grafik = df_grafik.sort_values('tarih_dt')
             df_grafik['Tarih_Gosterim'] = df_grafik['tarih_dt'].dt.strftime('%d.%m')
             
-            # --- HATASIZ GÜVENLİ GRAFİK ÇİZİMİ ---
+            # --- YENİLENMİŞ MODERN DİKEY ÇUBUK GRAFİĞİ ---
             if not df_grafik.empty:
                 fig_user = go.Figure()
-                fig_user.add_trace(go.Scatter(
+                fig_user.add_trace(go.Bar(
                     x=df_grafik['Tarih_Gosterim'], y=df_grafik['tutar'],
-                    mode='lines+markers',
-                    line=dict(color='#10B981', width=3),
-                    marker=dict(size=8, color='#F59E0B', borderwidth=2),
-                    fill='tozeroy',
-                    fillcolor='rgba(16, 185, 129, 0.15)',
-                    name='Ciro',
+                    marker=dict(
+                        color=df_grafik['tutar'],
+                        colorscale=['#1E293B', '#3B82F6', '#10B981'], # Satış miktarına göre renklenen premium geçiş
+                        line=dict(color='#10B981', width=1)
+                    ),
+                    text=df_grafik['tutar'].map(lambda x: f"{x:,} TL"),
+                    textposition='auto',
+                    textfont=dict(color='#FFFFFF', size=11, weight='bold'),
                     hovertemplate='<b>Tarih:</b> %{x}<br><b>Net Ciro:</b> %{y:,} TL<extra></extra>'
                 ))
                 fig_user.update_layout(
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
-                    xaxis=dict(type='category', showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
+                    xaxis=dict(type='category', showgrid=False, tickfont=dict(color='#94A3B8', size=12)),
                     yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
                 )
                 st.plotly_chart(fig_user, use_container_width=True, config={'displayModeBar': False})
@@ -389,20 +391,18 @@ else:
                 df_magaza_grafik['Tarih_Gosterim'] = df_magaza_grafik['tarih_dt'].dt.strftime('%d.%m')
                 
                 fig_store = go.Figure()
-                fig_store.add_trace(go.Scatter(
+                fig_store.add_trace(go.Bar(
                     x=df_magaza_grafik['Tarih_Gosterim'], y=df_magaza_grafik['tutar'],
-                    mode='lines+markers',
-                    line=dict(color='#3B82F6', width=3),
-                    marker=dict(size=8, color='#38BDF8'),
-                    fill='tozeroy',
-                    fillcolor='rgba(59, 130, 246, 0.15)',
-                    name='Mağaza',
+                    marker=dict(color='#3B82F6', line=dict(color='#38BDF8', width=1)),
+                    text=df_magaza_grafik['tutar'].map(lambda x: f"{x:,} TL"),
+                    textposition='auto',
+                    textfont=dict(color='#FFFFFF', size=11, weight='bold'),
                     hovertemplate='<b>Tarih:</b> %{x}<br><b>Toplam:</b> %{y:,} TL<extra></extra>'
                 ))
                 fig_store.update_layout(
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(l=10, r=10, t=10, b=10), showlegend=False,
-                    xaxis=dict(type='category', showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8')),
+                    xaxis=dict(type='category', showgrid=False, tickfont=dict(color='#94A3B8', size=12)),
                     yaxis=dict(showgrid=True, gridcolor='#334155', tickfont=dict(color='#94A3B8'))
                 )
                 st.plotly_chart(fig_store, use_container_width=True, config={'displayModeBar': False})
