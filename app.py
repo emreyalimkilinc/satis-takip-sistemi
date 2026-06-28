@@ -75,8 +75,8 @@ st.markdown("""
         border-radius: 10px !important;
     }
     
-    /* Dokunmatik Büyük Kaydet Butonu */
-    div.stButton > button {
+    /* Form İçindeki Büyük Kaydet Butonu */
+    div[data-testid="stForm"] div.stButton > button {
         width: 100% !important;
         height: 52px !important;
         border-radius: 12px !important;
@@ -86,10 +86,18 @@ st.markdown("""
         font-size: 16px !important;
         border: none !important;
         box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
-        transition: all 0.2s ease !important;
     }
-    div.stButton > button:active {
-        background: #2563EB !important;
+    
+    /* Üst Sağdaki Geçiş Butonlarının Mobil Uyumu */
+    div[data-testid="stHorizontalBlock"] div.stButton > button {
+        width: 100% !important;
+        height: 40px !important;
+        border-radius: 10px !important;
+        background-color: #334155 !important;
+        color: #F1F5F9 !important;
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        border: 1px solid #475569 !important;
     }
     
     /* Excel İndirme Butonu Özelleştirme */
@@ -103,27 +111,38 @@ st.markdown("""
         border: none !important;
     }
     
-    /* Menü Radio Butonları Mobilde Yan Yana Düzgün Dursun */
-    div[data-testid="stWidgetLabel"] p {
-        font-size: 14px !important;
-    }
-    
     /* Streamlit Logolarını Gizle */
     #MainMenu, footer {visibility: hidden;}
     </style>
 """, unsafe_allow_html=True)
 
-# Başlık
-st.markdown("""
-    <div style='text-align: center; padding: 15px 0px;'>
-        <h1 style='color: #F8FAFC; font-size: 26px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 2px;'>Sales Entry</h1>
-        <p style='color: #94A3B8; font-size: 13px;'>Hızlı Satış Veri Giriş Portalı</p>
-    </div>
-""", unsafe_allow_html=True)
-
-# Admin Paneli Durum Kontrolü (Session State yardımıyla geçişi akıcı yapıyoruz)
+# Admin Paneli Durum Kontrolü
 if 'admin_modu_aktif' not in st.session_state:
     st.session_state.admin_modu_aktif = False
+
+# --- ÜST BAŞLIK VE SAĞ BUTON ALANI ---
+hdr_col1, hdr_col2 = st.columns([2, 1])
+
+with hdr_col1:
+    st.markdown("""
+        <div style='text-align: left; padding: 5px 0px;'>
+            <h1 style='color: #F8FAFC; font-size: 24px; font-weight: 700; letter-spacing: -0.5px; margin: 0;'>Sales Entry</h1>
+            <p style='color: #94A3B8; font-size: 12px; margin: 2px 0 0 0;'>Hızlı Veri Giriş Portalı</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+with hdr_col2:
+    st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
+    if not st.session_state.admin_modu_aktif:
+        if st.button("🔒 Admin"):
+            st.session_state.admin_modu_aktif = True
+            st.rerun()
+    else:
+        if st.button("📝 Form"):
+            st.session_state.admin_modu_aktif = False
+            st.rerun()
+
+st.markdown("---")
 
 # --- GÖRÜNÜM 1: STANDART SATIŞ GİRİŞİ ---
 if not st.session_state.admin_modu_aktif:
@@ -147,21 +166,10 @@ if not st.session_state.admin_modu_aktif:
             else:
                 st.error("Lütfen geçerli bir tutar girin.")
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    if st.button("🔒 Yönetici Paneline Geç"):
-        st.session_state.admin_modu_aktif = True
-        st.rerun()
-
 # --- GÖRÜNÜM 2: GİZLİ YÖNETİCİ PANELİ ---
 else:
     st.markdown("### 🔒 Yönetici Kimlik Doğrulama")
-    admin_sifre = st.text_input("Admin Şifresini Girin:", type="password", placeholder="••••••")
-    
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("⬅️ Satış Formuna Dön"):
-            st.session_state.admin_modu_aktif = False
-            st.rerun()
+    admin_sifre = st.text_input("Admin Şifresini Girin:", type="password", placeholder="•••••")
             
     if admin_sifre == "577339":
         st.success("Giriş Başarılı!")
@@ -191,7 +199,6 @@ else:
             except Exception:
                 pass
             
-            # Mobilde yan yana sığması için sadeleştirilmiş menü
             admin_modu = st.radio("İnceleme Türü:", ["📊 Genel Rapor", "👤 Personel", "🏆 Şampiyonlar", "🗑️ Düzenle/Sil"], horizontal=True)
             st.markdown("---")
             
@@ -223,7 +230,6 @@ else:
                     toplam_ciro = f_df['tutar'].sum()
                     yuzde = min(toplam_ciro / mevcut_hedef, 1.0)
                     
-                    # Dark Mode Mobil Kart Tasarımı
                     st.markdown(f"""
                         <div style='background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 15px; margin-bottom: 15px;'>
                             <p style='margin:0; color:#94A3B8; font-size:13px; font-weight:600;'>TOPLAM DÖNEM CİROSU</p>
@@ -233,7 +239,6 @@ else:
                     """, unsafe_allow_html=True)
                     st.progress(yuzde)
                     
-                    # Dark Mod Uyumlu Grafik Tasarımı
                     try:
                         fig = px.bar(f_df, x='satici', y='tutar', color='departman', template="plotly_dark")
                         fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=20, b=10))
@@ -241,7 +246,6 @@ else:
                     except Exception:
                         pass
                     
-                    # Excel Çıktısı
                     try:
                         output = io.BytesIO()
                         excel_df = f_df[['tarih', 'satici', 'departman', 'tutar']].copy()
@@ -253,7 +257,6 @@ else:
                     except Exception:
                         pass
                     
-                    # Satış Detay Tablosu
                     try:
                         goster_df = f_df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
                         goster_df['tarih'] = pd.to_datetime(goster_df['tarih']).dt.strftime('%d.%m.%Y')
