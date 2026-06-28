@@ -12,6 +12,7 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
+    # Satışlar Tablosu
     c.execute('''
         CREATE TABLE IF NOT EXISTS satislar (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,13 +22,19 @@ def init_db():
             tutar REAL
         )
     ''')
+    # Hedefler Tablosu (Genel ve Departman Kotaları için)
     c.execute('''
         CREATE TABLE IF NOT EXISTS hedefler (
             tur TEXT PRIMARY KEY,
             hedef_tutar REAL
         )
     ''')
+    # Varsayılan Kotalar
     c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('aylik_genel', 500000.0)")
+    c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Giriş kat', 150000.0)")
+    c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Züccaciye', 100000.0)")
+    c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Kasa', 50000.0)")
+    c.execute("INSERT OR IGNORE INTO hedefler (tur, hedef_tutar) VALUES ('Mobilya', 200000.0)")
     conn.commit()
     conn.close()
 
@@ -178,23 +185,49 @@ else:
         st.success("Giriş Başarılı!")
         st.markdown("---")
         
+        # Tüm hedefleri veritabanından çekme
         conn = get_db_connection()
         df = pd.read_sql_query("SELECT * FROM satislar", conn)
         c = conn.cursor()
+        
         c.execute("SELECT hedef_tutar FROM hedefler WHERE tur='aylik_genel'")
         mevcut_hedef = c.fetchone()[0]
+        
+        kotalar = {}
+        for d_name in DEPARTMAN_LISTESI:
+            c.execute("SELECT hedef_tutar FROM hedefler WHERE tur=?", (d_name,))
+            res = c.fetchone()
+            kotalar[d_name] = res[0] if res else 0.0
         conn.close()
         
-        # Hedef Ayarlama Alanı
-        yeni_hedef = st.number_input("Aylık Genel Ciro Hedefi (₺):", min_value=0.0, value=float(mevcut_hedef), step=10000.0)
-        if yeni_hedef != mevcut_hedef:
+        # --- KOTA VE HEDEF GİRİŞ ALANI ---
+        with st.expander("🎯 Mağaza & Departman Kotalarını Ayarla"):
+            yeni_hedef = st.number_input("Aylık Genel Ciro Hedefi (₺):", min_value=0.0, value=float(mevcut_hedef), step=10000.0)
+            if yeni_hedef != mevcut_hedef:
+                conn = get_db_connection()
+                c = conn.cursor()
+                c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur='aylik_genel'", (yeni_hedef,))
+                conn.commit()
+                conn.close()
+                st.success("Genel hedef güncellendi!")
+                st.rerun()
+                
+            st.markdown("**Mağaza Alan Kotası (Departman Bazlı):**")
             conn = get_db_connection()
             c = conn.cursor()
-            c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur='aylik_genel'", (yeni_hedef,))
-            conn.commit()
-            conn.close()
-            st.success("Hedef güncellendi!")
-            st.rerun()
+            kota_degisti = False
+            for d_name in DEPARTMAN_LISTESI:
+                yeni_d_kota = st.number_input(f"⚠️ {d_name} Kotası (₺):", min_value=0.0, value=float(kotalar[d_name]), step=5000.0)
+                if yeni_d_kota != kotalar[d_name]:
+                    c.execute("UPDATE hedefler SET hedef_tutar = ? WHERE tur = ?", (yeni_d_kota, d_name))
+                    kota_degisti = True
+            if kota_degisti:
+                conn.commit()
+                conn.close()
+                st.success("Mağaza kotaları başarıyla güncellendi!")
+                st.rerun()
+            else:
+                conn.close()
 
         if not df.empty:
             try:
@@ -205,7 +238,7 @@ else:
             admin_modu = st.radio("İnceleme Türü:", ["📊 Genel Rapor", "👤 Personel", "🏆 Şampiyonlar", "⚙️ Düzenle/Sil"], horizontal=True)
             st.markdown("---")
             
-            # --- MOD 1: GENEL RAPOR ---
+            # --- MOD 1: GENEL RAPOR VE KOTA DURUM TABLOSU ---
             if admin_modu == "📊 Genel Rapor":
                 try:
                     min_date = df['tarih_formatli'].min().date()
@@ -237,11 +270,41 @@ else:
                         <div style='background-color: #1E293B; border: 1px solid #334155; border-radius: 12px; padding: 15px; margin-bottom: 15px;'>
                             <p style='margin:0; color:#94A3B8; font-size:13px; font-weight:600;'>TOPLAM DÖNEM CİROSU</p>
                             <h2 style='margin:5px 0; color:#3B82F6; font-size:24px;'>{toplam_ciro:,.2f} ₺</h2>
-                            <p style='margin:0; color:#10B981; font-size:12px;'>Hedef İlerlemesi: %{yuzde*100:.1f} (Hedef: {mevcut_hedef:,.0f} ₺)</p>
+                            <p style='margin:0; color:#10B981; font-size:12px;'>Genel Hedef İlerlemesi: %{yuzde*100:.1f} (Hedef: {mevcut_hedef:,.0f} ₺)</p>
                         </div>
                     """, unsafe_allow_html=True)
                     st.progress(yuzde)
                     
+                    # --- MAĞAZA KOTASI HEDEFE NE KADAR KALDI TABLOSU ---
+                    st.markdown("### 🎯 Mağaza Kota Durumu (Hedefe Ne Kaldı?)")
+                    
+                    kota_durum_verisi = []
+                    for d_name in DEPARTMAN_LISTESI:
+                        dept_satis_toplam = f_df[f_df['departman'] == d_name]['tutar'].sum()
+                        dept_hedef = kotalar.get(d_name, 0.0)
+                        kalan = dept_hedef - dept_satis_toplam
+                        
+                        if kalan <= 0:
+                            kalan_str = "0.00 ₺ (Hedef Tamamlandı 🎉)"
+                            basari_yuzde = 100.0 if dept_hedef > 0 else 0.0
+                            if dept_hedef > 0 and dept_satis_toplam > dept_hedef:
+                                basari_yuzde = (dept_satis_toplam / dept_hedef) * 100
+                        else:
+                            kalan_str = f"{kalan:,.2f} ₺"
+                            basari_yuzde = (dept_satis_toplam / dept_hedef) * 100 if dept_hedef > 0 else 0.0
+                            
+                        kota_durum_verisi.append({
+                            "Mağaza Alanı / Bölüm": d_name,
+                            "Belirlenen Kota Target (₺)": f"{dept_hedef:,.2f} ₺",
+                            "Mevcut Ciro (₺)": f"{dept_satis_toplam:,.2f} ₺",
+                            "Hedefe Kalan Tutar (₺)": kalan_str,
+                            "Başarı Oranı (%)": f"% {basari_yuzde:.1f}"
+                        })
+                    
+                    kota_durum_df = pd.DataFrame(kota_durum_verisi)
+                    st.dataframe(kota_durum_df, use_container_width=True)
+                    st.markdown("---")
+
                     try:
                         fig = px.bar(f_df, x='satici', y='tutar', color='departman', template="plotly_dark")
                         fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=10, r=10, t=20, b=10))
@@ -359,7 +422,6 @@ else:
             elif admin_modu == "⚙️ Düzenle/Sil":
                 st.markdown("### ⚙️ Canlı Satır Güncelleme ve Silme")
                 
-                # Tablo listesi
                 try:
                     gosterilecek_df = df[['id', 'tarih', 'satici', 'departman', 'tutar']].copy()
                     gosterilecek_df['tarih'] = pd.to_datetime(gosterilecek_df['tarih']).dt.strftime('%d.%m.%Y')
@@ -369,21 +431,15 @@ else:
                     pass
                 
                 st.markdown("---")
-                
                 islem_tipi = st.radio("İşlem Seçin:", ["✏️ Satırı Seç ve Güncelle", "🚨 Satırı Sil"], horizontal=True)
                 
                 if islem_tipi == "✏️ Satırı Seç ve Güncelle":
-                    # Mevcut ID listesini çekip selectbox'a koyuyoruz
                     mevcut_id_listesi = sorted(df['id'].tolist(), reverse=True)
-                    
                     if mevcut_id_listesi:
                         edit_id = st.selectbox("Düzenlenecek Satışın ID Numarasını Seçin:", mevcut_id_listesi)
-                        
-                        # Seçilen ID'nin mevcut verilerini otomatik çekiyoruz (Canlı veri doldurma)
                         secilen_satir = df[df['id'] == edit_id].iloc[0]
                         eski_tarih = datetime.strptime(secilen_satir['tarih'], '%Y-%m-%d').date()
                         
-                        # Personel ve Departman indexlerini bulma koruması
                         try: s_idx = PERSONEL_LISTESI.index(secilen_satir['satici'])
                         except: s_idx = 0
                         try: d_idx = DEPARTMAN_LISTESI.index(secilen_satir['departman'])
@@ -391,7 +447,6 @@ else:
                         
                         st.markdown(f"<p style='color:#3B82F6; font-size:13px; font-weight:bold;'>💡 ID {edit_id} için güncelleme formu aşağıda açıldı:</p>", unsafe_allow_html=True)
                         
-                        # Düzenleme Formu
                         with st.form("canli_duzenleme_formu"):
                             yeni_tarih = st.date_input("Tarih Değiştir", eski_tarih)
                             yeni_satici = st.selectbox("Satıcı Değiştir", PERSONEL_LISTESI, index=s_idx)
@@ -411,7 +466,7 @@ else:
                                     """, (yeni_tarih.strftime('%Y-%m-%d'), yeni_satici, yeni_dept, yeni_tutar, int(edit_id)))
                                     conn.commit()
                                     conn.close()
-                                    st.success(f"Başarılı: ID {edit_id} güncellendi! Yeni bir satır eklenmedi.")
+                                    st.success(f"Başarılı: ID {edit_id} güncellendi!")
                                     st.rerun()
                                 else:
                                     st.error("Tutar 0'dan büyük olmalıdır.")
